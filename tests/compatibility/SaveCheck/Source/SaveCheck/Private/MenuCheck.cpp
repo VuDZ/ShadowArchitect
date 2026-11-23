@@ -1,10 +1,14 @@
 #include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
+#include "Buildables/FGBuildableFoundation.h"
 #include "Components/Button.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/TextRenderComponent.h"
 #include "Containers/Ticker.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
+#include "Engine/StaticMeshActor.h"
 #include "EngineUtils.h"
 #include "Equipment/FGBuildGunBuild.h"
 #include "FGBlueprintSubsystem.h"
@@ -14,16 +18,21 @@
 #include "FGInputLibrary.h"
 #include "FGPlayerController.h"
 #include "FGPlayerInput.h"
+#include "FGRecipe.h"
+#include "FGSaveInterface.h"
 #include "FGSaveSession.h"
+#include "FGSaveSystem.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Commands/InputChord.h"
 #include "HAL/FileManager.h"
 #include "Hologram/FGBlueprintHologram.h"
+#include "Interfaces/IPluginManager.h"
 #include "InputKeyEventArgs.h"
 #include "Layout/Children.h"
 #include "Layout/WidgetPath.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/Paths.h"
+#include "Resources/FGBuildingDescriptor.h"
 #include "UI/FGButtonWidget.h"
 #include "UI/FGGameUI.h"
 #include "UnrealClient.h"
@@ -99,6 +108,7 @@ struct FPlanMenuRecord
     FTransform Pose;
     FString Name;
     FVector AimPoint;
+    FBox Bounds = FBox(ForceInit);
 };
 
 TArray<FPlanMenuRecord> ReadMenuPlans(UWorld& World)
@@ -118,6 +128,7 @@ TArray<FPlanMenuRecord> ReadMenuPlans(UWorld& World)
     if (!Id || !Transform || !Name || !PartType) return Result;
     const auto* PartTransform = FindFProperty<FStructProperty>(PartType->Struct, TEXT("InPlan"));
     const auto* Center = FindFProperty<FStructProperty>(PartType->Struct, TEXT("BoundsCenter"));
+    const auto* Size = FindFProperty<FStructProperty>(PartType->Struct, TEXT("BoundsSize"));
     if (!PartTransform || !Center) return Result;
 
     FScriptArrayHelper Records(Plans, Plans->ContainerPtrToValuePtr<void>(*Subsystem));
@@ -134,6 +145,15 @@ TArray<FPlanMenuRecord> ReadMenuPlans(UWorld& World)
         Entry.AimPoint = Entry.Pose.TransformPosition(
             PartTransform->ContainerPtrToValuePtr<FTransform>(FirstPart)->TransformPosition(
                 *Center->ContainerPtrToValuePtr<FVector>(FirstPart)));
+        if (!Size) continue;
+        for (int32 PartIndex = 0; PartIndex < PlanParts.Num(); ++PartIndex)
+        {
+            const auto* Part = PlanParts.GetRawPtr(PartIndex);
+            const FVector PartCenter = *Center->ContainerPtrToValuePtr<FVector>(Part);
+            const FVector Extent = *Size->ContainerPtrToValuePtr<FVector>(Part) * 0.5;
+            Entry.Bounds += FBox(PartCenter - Extent, PartCenter + Extent).TransformBy(
+                *PartTransform->ContainerPtrToValuePtr<FTransform>(Part) * Entry.Pose);
+        }
     }
     return Result;
 }
@@ -264,11 +284,8 @@ struct FMenuProbe
             Point - FVector(0, 0, 800), Channel, Query) && Hit.ImpactNormal.Z > 0.9;
     }
 
-    bool OpenBlueprint(UWorld& World, APlayerController& Player, AFGCharacterPlayer& Character)
+    bool AimAtBuildSurface(UWorld& World, APlayerController& Player, AFGCharacterPlayer& Character)
     {
-        TArray<UFGBlueprintDescriptor*> Library;
-        AFGBlueprintSubsystem::GetBlueprintDescriptors(Library, &World);
-        if (Library.Num() != 1 || !Library[0]) return false;
         const FVector Point = Anchor + FVector(3200, 2400, 0);
         FHitResult Floor;
         if (!TraceSurface(World, Character, Point, ECC_GameTraceChannel5, Floor)
@@ -280,6 +297,14 @@ struct FMenuProbe
         BuildAim = Floor.ImpactPoint;
         Player.SetViewTarget(&Character);
         Player.SetControlRotation((BuildAim - Character.GetPawnViewLocation()).Rotation());
+        return true;
+    }
+
+    bool OpenBlueprint(UWorld& World, APlayerController& Player, AFGCharacterPlayer& Character)
+    {
+        TArray<UFGBlueprintDescriptor*> Library;
+        AFGBlueprintSubsystem::GetBlueprintDescriptors(Library, &World);
+        if (Library.Num() != 1 || !Library[0] || !AimAtBuildSurface(World, Player, Character)) return false;
         if (!Preview(Character)) Character.HotKeyBlueprint(Library[0]->GetBlueprintNameAsString());
         return true;
     }
@@ -816,4 +841,794 @@ FTickerDelegate MakePlanActionsCheck(FString Mode)
     FMenuProbe Probe;
     Probe.ActionsMode = MoveTemp(Mode);
     return FTickerDelegate::CreateLambda([Probe = MoveTemp(Probe)](float) mutable { return Probe.Tick(); });
+}
+
+DEFINE_LOG_CATEGORY_STATIC(LogSaveCheckEditing, Log, All);
+
+namespace
+{
+struct FEditingProbe : FMenuProbe
+{
+    enum class EEdit
+    {
+        Ready, Prepare, Place, CycleA, CycleB, AimA, PickA, PickB, Wall, Hide, HiddenPick, Show,
+        MarkA, MarkB, MovePreview, Move, LegacyDismiss, InvalidMove, RefuseMove, SaveMove, AimDelete, DeleteSelect, Delete, DeleteAgain,
+        SaveFinal, ReloadPreview, ClearSelect, ClearAsk, ClearCancel, ClearAskAgain, ClearConfirm, ClearHide, ClearHidden, ClearShow
+    };
+
+    EEdit Edit = EEdit::Ready;
+    FString Mode;
+    FString FramesDirectory;
+    FString Slot;
+    FString MoveSlot;
+    FString Blueprint;
+    FName RemappedMapAction;
+    int32 ExpectedCount = 1;
+    int32 Placing = 0;
+    bool bRotatedFoundation = false;
+    bool bLegacyMoved = true;
+    FVector Origin;
+    FTransform Fixture;
+    FTransform FoundationPose;
+    FInputChord PickInput = FInputChord(EKeys::L, true, true, false, false);
+    FInputChord ClearInput = FInputChord(EKeys::X, true, true, false, false);
+    TWeakObjectPtr<AStaticMeshActor> WallActor;
+    TWeakObjectPtr<AFGBuildableFoundation> RealFoundation;
+    TSharedPtr<TOptional<bool>> Saved;
+
+    bool Legacy() const { return Mode == TEXT("legacy") || Mode == TEXT("legacy-map"); }
+    bool ClearRun() const { return Mode == TEXT("clear"); }
+
+    void Advance(EEdit NextEdit)
+    {
+        Edit = NextEdit;
+        Age = 0;
+    }
+
+    static bool End(bool bPass, const TCHAR* Reason)
+    {
+        UE_LOG(LogSaveCheckEditing, Display, TEXT("pass=%d %s"), bPass, Reason);
+        FPlatformMisc::RequestExit(false);
+        return false;
+    }
+
+    static int32 ChatCount(UWorld& World, const TCHAR* Text)
+    {
+        auto* Chat = AFGChatManager::Get(&World);
+        TArray<FChatMessageStruct> Messages;
+        if (Chat) Chat->GetReceivedChatMessages(Messages);
+        return Messages.FilterByPredicate([Text](const FChatMessageStruct& Message)
+        {
+            return Message.MessageSender.ToString() == TEXT("Shadow Architect") && Message.MessageText.ToString() == Text;
+        }).Num();
+    }
+
+    static bool MatchViews(UWorld& World, const TArray<FPlanMenuRecord>& Records, bool bVisible)
+    {
+        auto* Type = FindObject<UClass>(nullptr, TEXT("/Script/ShadowArchitect.ShadowProjection"));
+        if (!Type) return false;
+        int32 Count = 0;
+        for (TActorIterator<AActor> View(&World, Type); View; ++View)
+        {
+            ++Count;
+            if (View->IsHidden() == bVisible || !Records.ContainsByPredicate([&View](const auto& Record)
+                { return Record.Pose.Equals(View->GetActorTransform(), 0.1); })) return false;
+        }
+        return Count == Records.Num();
+    }
+
+    static bool CheckMarker(UWorld& World, const FPlanMenuRecord* Target, const TCHAR* Case)
+    {
+        auto* Type = FindObject<UClass>(nullptr, TEXT("/Script/ShadowArchitect.ShadowProjection"));
+        const auto* Marker = Type ? FindFProperty<FObjectPropertyBase>(Type, TEXT("SelectionMarker")) : nullptr;
+        if (!Marker) return false;
+        int32 Visible = 0;
+        bool bMatches = false;
+        for (TActorIterator<AActor> View(&World, Type); View; ++View)
+        {
+            const auto* Text = Cast<UTextRenderComponent>(Marker->GetObjectPropertyValue_InContainer(*View));
+            if (!IsValid(Text) || !Text->IsVisible() || View->IsHidden()) continue;
+            ++Visible;
+            bMatches = Target && Target->Pose.Equals(View->GetActorTransform(), 0.1);
+        }
+        UE_LOG(LogSaveCheckEditing, Display, TEXT("case=%s visible_markers=%d expected_id=%s match=%d"),
+            Case, Visible, Target ? *Target->Id.ToString() : TEXT("none"), bMatches);
+        return Target ? Visible == 1 && bMatches : Visible == 0;
+    }
+
+    static void Report(UWorld& World, const TCHAR* Event)
+    {
+        const auto Records = ReadMenuPlans(World);
+        UE_LOG(LogSaveCheckEditing, Display, TEXT("event=%s plans=%d"), Event, Records.Num());
+        for (const auto& Record : Records)
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("event=%s id=%s blueprint=%s pose=%s"),
+                Event, *Record.Id.ToString(), *Record.Name, *Record.Pose.ToString());
+    }
+
+    bool Unchanged(UWorld& World) const
+    {
+        const auto Records = ReadMenuPlans(World);
+        if (Records.Num() != Initial.Num()) return false;
+        for (int32 Index = 0; Index < Records.Num(); ++Index)
+            if (Records[Index].Id != Initial[Index].Id || !Records[Index].Pose.Equals(Initial[Index].Pose, 0.1)) return false;
+        return true;
+    }
+
+    static bool ClearInputFixture(UWorld& World)
+    {
+        auto* Type = FindObject<UClass>(nullptr, TEXT("/Script/ShadowArchitect.ShadowPlanSubsystem"));
+        if (!Type) return false;
+        TActorIterator<AActor> Subsystem(&World, Type);
+        const auto* Plans = FindFProperty<FArrayProperty>(Type, TEXT("Plans"));
+        const auto* Visible = FindFProperty<FBoolProperty>(Type, TEXT("bVisible"));
+        if (!Subsystem || !Plans || !Visible) return false;
+        FScriptArrayHelper Records(Plans, Plans->ContainerPtrToValuePtr<void>(*Subsystem));
+        Records.EmptyValues();
+        Visible->SetPropertyValue_InContainer(*Subsystem, true);
+        IFGSaveInterface::Execute_PostLoadGame(*Subsystem, 0, 0);
+        return true;
+    }
+
+    bool LookAt(APlayerController& Player, const FVector& Eye, const FVector& Focus)
+    {
+        const FRotator Rotation = (Focus - Eye).Rotation();
+        if (!Camera.IsValid()) Camera = Player.GetWorld()->SpawnActor<ACameraActor>(Eye, Rotation);
+        if (!Camera.IsValid()) return false;
+        Camera->GetCameraComponent()->SetFieldOfView(90);
+        Camera->GetCameraComponent()->SetAspectRatio(16.f / 9.f);
+        Camera->GetCameraComponent()->SetConstraintAspectRatio(true);
+        Camera->SetActorLocationAndRotation(Eye, Rotation);
+        Player.SetViewTarget(Camera.Get());
+        UE_LOG(LogSaveCheckEditing, Display, TEXT("camera_cm=%s look=%s"), *Eye.ToString(), *Rotation.ToString());
+        return true;
+    }
+
+    bool LookEnd(APlayerController& Player, bool bFar)
+    {
+        const auto& Target = Initial[bFar ? 1 : 0];
+        const double Edge = bFar ? Target.Bounds.Max.X : Target.Bounds.Min.X;
+        const FVector Eye(Edge + (bFar ? 1200 : -1200), Target.AimPoint.Y, Target.AimPoint.Z);
+        return LookAt(Player, Eye, Target.AimPoint);
+    }
+
+    bool LookPair(APlayerController& Player)
+    {
+        const FBox Both = Initial[0].Bounds + Initial[1].Bounds;
+        const FVector At = Both.GetCenter();
+        const FVector Eye = At + FVector(0, -FMath::Max(Both.GetSize().X, Both.GetSize().Y), Both.GetSize().Z * 0.38);
+        return LookAt(Player, Eye, At);
+    }
+
+    bool CheckSelection(UWorld& World, int32 Index, const FInputChord& Input, const TCHAR* Case)
+    {
+        FGuid SelectedId;
+        const int32 Count = SelectionMessages(World, SelectedId);
+        const bool bMatches = Count == InitialSelectionMessages + 1 && SelectedId == Initial[Index].Id;
+        UE_LOG(LogSaveCheckEditing, Display, TEXT("case=%s input=%s selected=%s expected=%s match=%d"),
+            Case, *Input.GetInputText().ToString(), *SelectedId.ToString(), *Initial[Index].Id.ToString(), bMatches);
+        InitialSelectionMessages = Count;
+        return bMatches;
+    }
+
+    bool CheckMiss(UWorld& World, const TCHAR* Case, int32 LastMisses)
+    {
+        FGuid SelectedId;
+        const bool bNoSelection = SelectionMessages(World, SelectedId) == InitialSelectionMessages;
+        const bool bReported = ChatCount(World, TEXT("No visible plan under the crosshair.")) == LastMisses + 1;
+        const bool bUnchanged = Unchanged(World);
+        UE_LOG(LogSaveCheckEditing, Display, TEXT("case=%s input=%s miss=%d unchanged=%d"),
+            Case, *PickInput.GetInputText().ToString(), bNoSelection && bReported, bUnchanged);
+        return bNoSelection && bReported && bUnchanged;
+    }
+
+    void OpenFixturePreview(APlayerController& Player, AFGCharacterPlayer& Character)
+    {
+        Player.SetViewTarget(&Character);
+        Player.SetControlRotation(FRotator(-60, 0, 0));
+        Character.HotKeyBlueprint(Blueprint);
+    }
+
+    static TSubclassOf<UFGRecipe> FoundationRecipe()
+    {
+        return LoadClass<UFGRecipe>(nullptr,
+            TEXT("/Game/FactoryGame/Recipes/Buildings/Foundations/Recipe_Foundation_8x1_01.Recipe_Foundation_8x1_01_C"));
+    }
+
+    static AFGHologram* EquippedPreview(AFGCharacterPlayer& Character)
+    {
+        auto* Gun = Character.GetBuildGun();
+        auto* Build = Gun && Gun->IsEquipped() ? Cast<UFGBuildGunStateBuild>(Gun->GetCurrentState()) : nullptr;
+        return Build ? Build->GetHologram() : nullptr;
+    }
+
+    bool OpenFoundationPreview(UWorld& World, APlayerController& Player, AFGCharacterPlayer& Character)
+    {
+        const auto Recipe = FoundationRecipe();
+        if (!Recipe || !AimAtBuildSurface(World, Player, Character)) return false;
+        Character.HotKeyRecipe(Recipe);
+        return true;
+    }
+
+    static AFGBlueprintHologram* PositionPreview(AFGCharacterPlayer& Character, const FTransform& Target)
+    {
+        auto* Hologram = Cast<AFGBlueprintHologram>(EquippedPreview(Character));
+        if (!Hologram || Hologram->mBuildableToNewRoot.IsEmpty()) return nullptr;
+        if (Hologram->IsHologramLocked()) Hologram->LockHologramPosition(false);
+        Hologram->SetActorTransform(Target);
+        Hologram->LockHologramPosition(true);
+        Hologram->SetActorHiddenInGame(false);
+        return Hologram->IsHologramLocked() && !Hologram->IsDisabled() ? Hologram : nullptr;
+    }
+
+    bool SpawnWall(UWorld& World)
+    {
+        auto* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+        if (!Cube || !Camera.IsValid()) return false;
+        const FVector At(Initial[0].Bounds.Min.X - 550, Initial[0].AimPoint.Y, Initial[0].AimPoint.Z);
+        auto* Wall = World.SpawnActor<AStaticMeshActor>(At, FRotator::ZeroRotator);
+        if (!Wall) return false;
+        Wall->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+        Wall->GetStaticMeshComponent()->SetStaticMesh(Cube);
+        Wall->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));
+        Wall->SetActorScale3D(FVector(0.35, 9, 9));
+        WallActor = Wall;
+        FHitResult Hit;
+        const bool bBlocks = World.LineTraceSingleByChannel(Hit, Camera->GetActorLocation(), Initial[0].AimPoint, ECC_Visibility)
+            && Hit.GetActor() == Wall;
+        UE_LOG(LogSaveCheckEditing, Display, TEXT("opaque_wall=%s blocks_camera_ray=%d"), *At.ToString(), bBlocks);
+        return bBlocks;
+    }
+
+    bool SpawnFoundation(UWorld& World)
+    {
+        const auto Recipe = FoundationRecipe();
+        if (!Recipe) return false;
+        const auto Products = UFGRecipe::GetProducts(Recipe);
+        if (Products.IsEmpty()) return false;
+        const auto Type = UFGBuildingDescriptor::GetBuildableClass(Products[0].ItemClass.Get());
+        if (!Type || !Type->IsChildOf(AFGBuildableFoundation::StaticClass())) return false;
+        const FVector At = Initial[0].AimPoint + FVector(450, 0, -50);
+        const FTransform Pose(FRotator::ZeroRotator, At);
+        auto* Native = World.SpawnActorDeferred<AFGBuildableFoundation>(Type, Pose, nullptr, nullptr,
+            ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+        if (!Native) return false;
+        Native->SetBuiltWithRecipe(Recipe);
+        if (auto* Managed = FindFProperty<FBoolProperty>(AFGBuildable::StaticClass(), TEXT("mManagedByLightweightBuildableSubsystem")))
+            Managed->SetPropertyValue_InContainer(Native, false);
+        Native->FinishSpawning(Pose);
+        RealFoundation = Native;
+        FoundationPose = Native->GetActorTransform();
+        UE_LOG(LogSaveCheckEditing, Display, TEXT("foundation_class=%s pose=%s"), *Native->GetClass()->GetPathName(),
+            *Native->GetActorTransform().ToString());
+        return true;
+    }
+
+    bool AimForDelete(UWorld& World, APlayerController& Player)
+    {
+        const auto* Native = RealFoundation.Get();
+        if (!Native) return false;
+        const FVector At = Initial[0].AimPoint;
+        const double Distance = At.X - Initial[0].Bounds.Min.X + 1200;
+        const FBox NativeBounds = Native->GetComponentsBoundingBox(true);
+        const FVector Center = NativeBounds.IsValid ? NativeBounds.GetCenter() : FoundationPose.GetLocation();
+        for (const FVector& Direction : { (Center - At).GetSafeNormal(), FVector(1, 0, 0),
+            FVector(1, 0, -0.08), FVector(1, 0, 0.08), FVector(1, 0, -0.16), FVector(1, 0, 0.16) })
+        {
+            const FVector Eye = At - Direction * Distance;
+            FHitResult Hit;
+            if (!World.LineTraceSingleByChannel(Hit, Eye, At + Direction * 1100, ECC_Visibility)
+                || Hit.GetActor() != Native || FVector::DotProduct(Hit.ImpactPoint - At, Direction) <= 0)
+                continue;
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("deletion_ray_behind_A=%s hit=%s"),
+                *GetNameSafe(Hit.GetActor()), *Hit.ImpactPoint.ToString());
+            return LookAt(Player, Eye, At);
+        }
+        return false;
+    }
+
+    bool TakeFrame(const TCHAR* Name) const
+    {
+        if (FramesDirectory.IsEmpty()) return true;
+        const FString Path = FPaths::Combine(FramesDirectory, FString(Name) + TEXT(".png"));
+        if (Age == 1) FScreenshotRequest::RequestScreenshot(Path, true, false);
+        return IFileManager::Get().FileSize(*Path) > 0;
+    }
+
+    bool Write(UWorld& World, const FString& Name)
+    {
+        FString Existing;
+        auto* Save = UFGSaveSession::Get(&World);
+        if (!Save || !Name.StartsWith(TEXT("SAQ_")) || UFGSaveSystem::GetAbsolutePathForSaveGame(&World, Name, Existing))
+            return false;
+        Saved = MakeShared<TOptional<bool>>();
+        Save->SaveGame(Name, FOnSaveGameComplete::CreateLambda([Result = Saved, Name](bool Ok, const FText& Error, void*)
+        {
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("slot=%s write=%d detail=%s"), *Name, Ok, *Error.ToString());
+            Result->Emplace(Ok);
+        }), nullptr);
+        return true;
+    }
+
+    bool CheckRemaining(UWorld& World, int32 Index)
+    {
+        const auto Plans = ReadMenuPlans(World);
+        const bool bFoundation = Legacy() || ClearRun()
+            || (RealFoundation.IsValid() && RealFoundation->GetActorTransform().Equals(FoundationPose, 0.1));
+        return Plans.Num() == 1 && Plans[0].Id == Initial[Index].Id && Plans[0].Pose.Equals(Initial[Index].Pose, 0.1)
+            && bFoundation && MatchViews(World, Plans, true);
+    }
+
+    bool RemapStockMap(APlayerController& Player)
+    {
+        const auto* Input = Cast<UFGPlayerInput>(Player.PlayerInput);
+        if (!Input) return false;
+        for (const auto& Mapping : Input->GetEnhancedActionMappings())
+        {
+            if (Mapping.Key != EKeys::M || GetFNameSafe(Mapping.Action.Get()) != TEXT("IA_ToggleMap")) continue;
+            RemappedMapAction = Mapping.GetMappingName();
+            if (RemappedMapAction.IsNone()) return false;
+            UFGInputLibrary::RebindEnhancedKeyMapping(&Player, RemappedMapAction, EKeys::F11, {});
+            return true;
+        }
+        return false;
+    }
+
+    bool TickEdit(UWorld& World, APlayerController& Player, AFGCharacterPlayer& Character)
+    {
+        if (++Age > 100)
+        {
+            UE_LOG(LogSaveCheckEditing, Error, TEXT("mode=%s timeout step=%d placing=%d"),
+                *Mode, static_cast<int32>(Edit), Placing);
+            return End(false, TEXT("editing step timeout"));
+        }
+        const FInputChord Cycle(EKeys::J, true, true, false, false);
+        switch (Edit)
+        {
+        case EEdit::Ready:
+        {
+            if (Age < 10) break;
+            if (Mode == TEXT("legacy-map") && RemappedMapAction.IsNone())
+            {
+                if (!RemapStockMap(Player)) return End(false, TEXT("could not remap the stock map action"));
+                Age = 0;
+                break;
+            }
+            if (Mode == TEXT("legacy-map"))
+            {
+                const auto Mapping = ReadChord(Player, RemappedMapAction);
+                UE_LOG(LogSaveCheckEditing, Display, TEXT("stock_map_action=%s remapped=%s"),
+                    *RemappedMapAction.ToString(), *Mapping.GetInputText().ToString());
+                if (Mapping.Key != EKeys::F11) return End(false, TEXT("stock map did not move from M to F11"));
+            }
+            const auto Plugin = IPluginManager::Get().FindPlugin(TEXT("ShadowArchitect"));
+            const FString Version = Plugin ? Plugin->GetDescriptor().VersionName : TEXT("missing");
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("mode=%s version=%s expected_reload=%d"), *Mode, *Version, ExpectedCount);
+            if (Legacy() && Version != TEXT("0.1.1")) return End(false, TEXT("legacy requires installed 0.1.1"));
+            TArray<UFGBlueprintDescriptor*> Library;
+            AFGBlueprintSubsystem::GetBlueprintDescriptors(Library, &World);
+            if (Library.Num() != 1 || !Library[0]) return End(false, TEXT("expected one isolated Blueprint"));
+            Blueprint = Library[0]->GetBlueprintNameAsString();
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("library=%s"), *Blueprint);
+            if (Mode == TEXT("reload"))
+            {
+                const auto Plans = ReadMenuPlans(World);
+                Report(World, TEXT("reload"));
+                if (Plans.Num() != ExpectedCount || !MatchViews(World, Plans, true))
+                    return End(false, TEXT("reloaded plans"));
+                OpenFixturePreview(Player, Character);
+                Advance(EEdit::ReloadPreview);
+                break;
+            }
+            const auto Baseline = ReadMenuPlans(World);
+            Anchor = Baseline.IsEmpty() ? Character.GetActorLocation() : Baseline[0].Pose.GetLocation();
+            if (!ClearInputFixture(World)) return End(false, TEXT("reset isolated input plans"));
+            Origin = Character.GetActorLocation() + FVector(0, 0, 6200);
+            if (Legacy())
+            {
+                if (!AimAtBuildSurface(World, Player, Character)) return End(false, TEXT("legacy fixture floor"));
+                Origin = BuildAim + FVector(-1000, 0, -500);
+            }
+            Fixture = FTransform(FRotator::ZeroRotator, Origin);
+            OpenFixturePreview(Player, Character);
+            Advance(EEdit::Prepare);
+            break;
+        }
+        case EEdit::Prepare:
+            if (Age > 4 && PositionPreview(Character, Fixture)) Advance(EEdit::Place);
+            break;
+        case EEdit::Place:
+        {
+            if (!Stroke(Player, EKeys::F7)) break;
+            const auto Plans = ReadMenuPlans(World);
+            if (Plans.Num() != Placing + 1 || Plans.Last().Name != Blueprint || !Plans.Last().Bounds.IsValid
+                || !Plans.Last().Pose.Equals(Fixture, 0.1) || !MatchViews(World, Plans, true))
+                return End(false, TEXT("F7 did not place expected Blueprint and pose"));
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("input=F7 placed=%s pose=%s"),
+                *Plans.Last().Id.ToString(), *Plans.Last().Pose.ToString());
+            Initial = Plans;
+            ++Placing;
+            if (Placing < (ClearRun() ? 3 : 2))
+            {
+                const FVector Size = Initial[0].Bounds.GetSize();
+                const double ClearDistance = Size.GetMax() * 2 + 1000;
+                const FVector Offset = !ClearRun() ? FVector(Size.X + 300, 0, 0)
+                    : Placing == 1 ? FVector(0, ClearDistance, 0) : FVector(-2 * ClearDistance, 0, 0);
+                Fixture.SetLocation(Origin + Offset);
+                Advance(EEdit::Prepare);
+                break;
+            }
+            Character.UnequipBuildGun();
+            FGuid Last;
+            InitialSelectionMessages = SelectionMessages(World, Last);
+            Report(World, TEXT("before"));
+            if (ClearRun())
+            {
+                const FVector At = Initial[0].Bounds.GetCenter();
+                const FVector Eye = At - FVector(Initial[0].Bounds.GetSize().GetMax() * 2 + 1000, 0, 0);
+                if (!LookAt(Player, Eye, At)) return End(false, TEXT("clear camera"));
+                Advance(EEdit::ClearSelect);
+            }
+            else Advance(Legacy() ? EEdit::CycleA : EEdit::AimA);
+            break;
+        }
+        case EEdit::CycleA:
+        case EEdit::CycleB:
+        {
+            if (!Stroke(Player, Cycle)) break;
+            const int32 Index = Edit == EEdit::CycleA ? 0 : 1;
+            if (!CheckSelection(World, Index, Cycle, TEXT("cycle"))) return End(false, TEXT("J did not select expected plan"));
+            if (Index == 0) Advance(EEdit::CycleB);
+            else
+            {
+                if (!OpenFoundationPreview(World, Player, Character)) return End(false, TEXT("open stock foundation preview"));
+                Advance(EEdit::MovePreview);
+            }
+            break;
+        }
+        case EEdit::AimA:
+            if (!LookEnd(Player, false)) return End(false, TEXT("front camera"));
+            Advance(EEdit::PickA);
+            break;
+        case EEdit::PickA:
+            if (!Stroke(Player, PickInput)) break;
+            if (!CheckSelection(World, 0, PickInput, TEXT("front nearest")) || !LookEnd(Player, true))
+                return End(false, TEXT("front selection"));
+            Advance(EEdit::PickB);
+            break;
+        case EEdit::PickB:
+            if (!Stroke(Player, PickInput)) break;
+            if (!CheckSelection(World, 1, PickInput, TEXT("rear nearest")) || !LookEnd(Player, false))
+                return End(false, TEXT("rear selection"));
+            if (!SpawnWall(World)) return End(false, TEXT("opaque wall fixture"));
+            OldActionIndex = ChatCount(World, TEXT("No visible plan under the crosshair."));
+            Advance(EEdit::Wall);
+            break;
+        case EEdit::Wall:
+            if (!Stroke(Player, PickInput)) break;
+            if (!CheckMiss(World, TEXT("opaque wall"), OldActionIndex)) return End(false, TEXT("occlusion"));
+            WallActor->Destroy();
+            Advance(EEdit::Hide);
+            break;
+        case EEdit::Hide:
+        case EEdit::Show:
+        {
+            if (!Stroke(Player, EKeys::V, true)) break;
+            const bool bShow = Edit == EEdit::Show;
+            if (!Unchanged(World) || !MatchViews(World, Initial, bShow)) return End(false, TEXT("global visibility"));
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("input=Ctrl+Shift+V visible=%d"), bShow ? 2 : 0);
+            if (!Legacy() && !CheckMarker(World, bShow ? &Initial[1] : nullptr, bShow ? TEXT("shown") : TEXT("hidden")))
+                return End(false, TEXT("marker after global visibility change"));
+            if (!bShow && !Legacy())
+            {
+                if (!FramesDirectory.IsEmpty())
+                    FScreenshotRequest::RequestScreenshot(FPaths::Combine(FramesDirectory, TEXT("E03-hidden.png")), true, false);
+                OldActionIndex = ChatCount(World, TEXT("No visible plan under the crosshair."));
+                Advance(EEdit::HiddenPick);
+            }
+            else if (!bShow) Advance(EEdit::Show);
+            else if (Legacy()) Advance(EEdit::DeleteSelect);
+            else
+            {
+                if (!LookEnd(Player, false)) return End(false, TEXT("marker front camera"));
+                Advance(EEdit::MarkA);
+            }
+            break;
+        }
+        case EEdit::HiddenPick:
+            if (!Stroke(Player, PickInput)) break;
+            if (!CheckMiss(World, TEXT("hidden"), OldActionIndex)) return End(false, TEXT("hidden selection"));
+            Advance(EEdit::Show);
+            break;
+        case EEdit::MarkA:
+            if (Age <= 2)
+            {
+                if (!Stroke(Player, PickInput)) break;
+                if (!CheckSelection(World, 0, PickInput, TEXT("marker A")) || !CheckMarker(World, &Initial[0], TEXT("A"))
+                    || !LookPair(Player))
+                    return End(false, TEXT("marker A selection"));
+                break;
+            }
+            if (Age == 3 && !FramesDirectory.IsEmpty())
+                FScreenshotRequest::RequestScreenshot(FPaths::Combine(FramesDirectory, TEXT("E03-A.png")), true, false);
+            if (Age > 3 && (FramesDirectory.IsEmpty()
+                || IFileManager::Get().FileSize(*FPaths::Combine(FramesDirectory, TEXT("E03-A.png"))) > 0))
+                Advance(EEdit::MarkB);
+            break;
+        case EEdit::MarkB:
+            if (Age <= 2)
+            {
+                if (!Stroke(Player, Cycle)) break;
+                if (!CheckSelection(World, 1, Cycle, TEXT("marker B")) || !CheckMarker(World, &Initial[1], TEXT("B")))
+                    return End(false, TEXT("marker B selection"));
+                break;
+            }
+            if (Age == 3 && !FramesDirectory.IsEmpty())
+                FScreenshotRequest::RequestScreenshot(FPaths::Combine(FramesDirectory, TEXT("E03-B.png")), true, false);
+            if (Age > 3 && (FramesDirectory.IsEmpty()
+                || IFileManager::Get().FileSize(*FPaths::Combine(FramesDirectory, TEXT("E03-B.png"))) > 0))
+            {
+                if (!LookEnd(Player, true)) return End(false, TEXT("move target camera"));
+                Advance(EEdit::MovePreview);
+            }
+            break;
+        case EEdit::MovePreview:
+            if (!Legacy() && Age <= 2)
+            {
+                if (!Stroke(Player, PickInput)) break;
+                if (!CheckSelection(World, 1, PickInput, TEXT("move target B"))) return End(false, TEXT("move target"));
+                OpenFixturePreview(Player, Character);
+                break;
+            }
+            if (Age >= 5)
+            {
+                MovePose = FTransform(FRotator(0, 90, 0), Initial[1].Pose.GetLocation() + FVector(0, 0, 400));
+                if (!Legacy())
+                {
+                    if (PositionPreview(Character, MovePose)) Advance(EEdit::Move);
+                    break;
+                }
+                Player.SetControlRotation((BuildAim - Character.GetPawnViewLocation()).Rotation());
+                auto* Hologram = EquippedPreview(Character);
+                if (Age == 5 || Age == 20)
+                    UE_LOG(LogSaveCheckEditing, Display, TEXT("foundation_preview=%s hidden=%d disabled=%d can_lock=%d"),
+                        *GetNameSafe(Hologram), Hologram && Hologram->IsHidden(), Hologram && Hologram->IsDisabled(),
+                        Hologram && Hologram->CanLockHologram());
+                if (!Hologram || Hologram->IsHidden() || Hologram->IsDisabled() || !Hologram->CanLockHologram()) break;
+                if (!bRotatedFoundation)
+                {
+                    Hologram->ScrollRotate(1, 90);
+                    bRotatedFoundation = true;
+                    break;
+                }
+                MovePose = Hologram->GetActorTransform();
+                const double YawChange = FMath::FindDeltaAngleDegrees(Initial[1].Pose.Rotator().Yaw, MovePose.Rotator().Yaw);
+                if (MovePose.GetLocation().Z <= Initial[0].Pose.GetLocation().Z || FMath::IsNearlyZero(YawChange))
+                    return End(false, TEXT("stock foundation requires higher pose and changed rotation"));
+                Hologram->LockHologramPosition(true);
+                if (Hologram->IsHologramLocked()) Advance(EEdit::Move);
+            }
+            break;
+        case EEdit::Move:
+        {
+            if (!bPressed)
+            {
+                const auto* Hologram = EquippedPreview(Character);
+                UE_LOG(LogSaveCheckEditing, Display, TEXT("move_preview=%s hidden=%d disabled=%d locked=%d pose=%s"),
+                    *GetNameSafe(Hologram), Hologram && Hologram->IsHidden(), Hologram && Hologram->IsDisabled(),
+                    Hologram && Hologram->IsHologramLocked(),
+                    Hologram ? *Hologram->GetActorTransform().ToString() : TEXT("none"));
+                if (Legacy())
+                    if (const auto* Input = Cast<UFGPlayerInput>(Player.PlayerInput))
+                        for (const auto& Mapping : Input->GetEnhancedActionMappings())
+                            if (Mapping.Key == EKeys::M)
+                                UE_LOG(LogSaveCheckEditing, Display, TEXT("legacy_stock_M action=%s mapping=%s triggers=%d"),
+                                    *GetPathNameSafe(Mapping.Action.Get()), *Mapping.GetMappingName().ToString(),
+                                    Mapping.Triggers.Num());
+            }
+            if (!Stroke(Player, EKeys::M, true)) break;
+            const FTransform Original = Initial[1].Pose;
+            Initial[1].Pose = MovePose;
+            const bool bMoved = Unchanged(World) && MatchViews(World, Initial, true);
+            if (!bMoved)
+            {
+                if (!Legacy()) return End(false, TEXT("M changed wrong GUID or pose"));
+                bLegacyMoved = false;
+                Initial[1].Pose = Original;
+                if (!Unchanged(World) || !MatchViews(World, Initial, true)) return End(false, TEXT("legacy M changed unexpected data"));
+                LogMenuInputState(Player, TEXT("after legacy M"));
+                const auto* Hologram = EquippedPreview(Character);
+                UE_LOG(LogSaveCheckEditing, Display, TEXT("after_legacy_M preview=%s hidden=%d disabled=%d"),
+                    *GetNameSafe(Hologram), Hologram && Hologram->IsHidden(), Hologram && Hologram->IsDisabled());
+            }
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("input=Ctrl+Shift+M id=%s expected=%s moved=%d"),
+                *Initial[1].Id.ToString(), *MovePose.ToString(), bMoved);
+            Report(World, TEXT("after_move"));
+            OldActionIndex = ChatCount(World, TEXT("Position a Build Gun preview at the new origin first."));
+            if (Legacy()) Character.UnequipBuildGun();
+            Advance(Legacy() ? EEdit::LegacyDismiss : EEdit::InvalidMove);
+            break;
+        }
+        case EEdit::LegacyDismiss:
+            if (Age == 1 && (Player.bShowMouseCursor || GEngine->GameViewport->IgnoreInput())) SlateKey(EKeys::Escape);
+            if (Age >= 3) Advance(EEdit::Hide);
+            break;
+        case EEdit::InvalidMove:
+        {
+            auto* Hologram = EquippedPreview(Character);
+            if (!Hologram) return End(false, TEXT("equipped preview required for invalid move probe"));
+            Hologram->SetDisabled(true);
+            if (!Hologram->IsDisabled()) return End(false, TEXT("could not disable native preview"));
+            if (!Stroke(Player, EKeys::M, true)) break;
+            const int32 Refusals = ChatCount(World, TEXT("Position a Build Gun preview at the new origin first."));
+            if (!Unchanged(World) || !MatchViews(World, Initial, true) || Refusals != OldActionIndex + 1)
+                return End(false, TEXT("M with disabled preview did not preserve both plans"));
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("input=Ctrl+Shift+M equipped=1 disabled=1 refused=1 unchanged=1"));
+            Hologram->SetDisabled(false);
+            Character.UnequipBuildGun();
+            OldActionIndex = Refusals;
+            Advance(EEdit::RefuseMove);
+            break;
+        }
+        case EEdit::RefuseMove:
+            if (!Stroke(Player, EKeys::M, true)) break;
+            if (!Unchanged(World) || !MatchViews(World, Initial, true) || EquippedPreview(Character)
+                || ChatCount(World, TEXT("Position a Build Gun preview at the new origin first.")) != OldActionIndex + 1)
+                return End(false, TEXT("M without a preview did not preserve both plans"));
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("input=Ctrl+Shift+M preview=0 refused=1 unchanged=1"));
+            if (!MoveSlot.IsEmpty() && !Write(World, MoveSlot)) return End(false, TEXT("invalid or existing move slot"));
+            Advance(EEdit::SaveMove);
+            break;
+        case EEdit::SaveMove:
+            if (Saved && !Saved->IsSet()) break;
+            if (Saved && !Saved->GetValue()) return End(false, TEXT("write move slot"));
+            if (!SpawnFoundation(World)) return End(false, TEXT("delete foundation fixture"));
+            Advance(EEdit::AimDelete);
+            break;
+        case EEdit::AimDelete:
+            if (Age < 5) break;
+            if (!AimForDelete(World, Player))
+            {
+                UE_LOG(LogSaveCheckEditing, Display, TEXT("deletion_ray_behind_A=no blocking foundation on test ray"));
+                if (!LookEnd(Player, false)) return End(false, TEXT("delete camera"));
+            }
+            Advance(EEdit::DeleteSelect);
+            break;
+        case EEdit::DeleteSelect:
+        {
+            const auto Input = Legacy() ? Cycle : PickInput;
+            if (!Stroke(Player, Input)) break;
+            if (!CheckSelection(World, 0, Input, TEXT("delete target A"))) return End(false, TEXT("delete target"));
+            if (!Legacy() && !FramesDirectory.IsEmpty())
+                FScreenshotRequest::RequestScreenshot(FPaths::Combine(FramesDirectory, TEXT("E05-target.png")), true, false);
+            Advance(EEdit::Delete);
+            break;
+        }
+        case EEdit::Delete:
+        case EEdit::DeleteAgain:
+        {
+            if (!Stroke(Player, EKeys::K, true)) break;
+            if (!CheckRemaining(World, 1)) return End(false, TEXT("K changed B or the real foundation"));
+            if (!Legacy() && !CheckMarker(World, nullptr, TEXT("deleted"))) return End(false, TEXT("stale selection marker"));
+            const bool bRepeated = Edit == EEdit::DeleteAgain;
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("input=Ctrl+Shift+K repeat=%d target=%s remaining=%s foundation=%d"),
+                bRepeated, *Initial[0].Id.ToString(), *Initial[1].Id.ToString(), RealFoundation.IsValid());
+            if (!bRepeated) Advance(EEdit::DeleteAgain);
+            else
+            {
+                Report(World, TEXT("after_delete"));
+                Saved.Reset();
+                Advance(EEdit::SaveFinal);
+            }
+            break;
+        }
+        case EEdit::ClearSelect:
+            if (!Stroke(Player, Cycle)) break;
+            if (!CheckSelection(World, 0, Cycle, TEXT("clear target selected"))) return End(false, TEXT("select A for clear"));
+            Advance(EEdit::ClearAsk);
+            break;
+        case EEdit::ClearAsk:
+        case EEdit::ClearAskAgain:
+            if (!Stroke(Player, ClearInput)) break;
+            if (ChatCount(World, TEXT("Clear in view: 2 target(s).")) != (Edit == EEdit::ClearAsk ? 1 : 2)
+                || !Unchanged(World)) return End(false, TEXT("clear prompt target count"));
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("input=Ctrl+Shift+X count=2 unchanged=1"));
+            Advance(Edit == EEdit::ClearAsk ? EEdit::ClearCancel : EEdit::ClearConfirm);
+            break;
+        case EEdit::ClearCancel:
+            if (!TakeFrame(TEXT("E06-clear"))) break;
+            if (!SlateKey(EKeys::Escape) || !Unchanged(World)
+                || ChatCount(World, TEXT("Cancelled clearing plans in view.")) != 1)
+                return End(false, TEXT("clear cancellation"));
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("input=Escape cancelled=1 unchanged=1"));
+            Advance(EEdit::ClearAskAgain);
+            break;
+        case EEdit::ClearConfirm:
+            if (Age == 1)
+            {
+                if (!Camera.IsValid() || !LookAt(Player, Camera->GetActorLocation(), Initial[2].Bounds.GetCenter()))
+                    return End(false, TEXT("turn towards C before confirmation"));
+                break;
+            }
+            if (!Stroke(Player, ClearInput)) break;
+            if (!CheckRemaining(World, 2) || !CheckMarker(World, nullptr, TEXT("clear"))
+                || ChatCount(World, TEXT("Cleared 2 plan(s) from the requested view.")) != 1)
+                return End(false, TEXT("clear confirmation must use original snapshot"));
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("input=Ctrl+Shift+X confirmed=2 camera_turned=1"));
+            Report(World, TEXT("after_clear"));
+            Advance(EEdit::ClearHide);
+            break;
+        case EEdit::ClearHide:
+            if (Stroke(Player, EKeys::V, true)) Advance(EEdit::ClearHidden);
+            break;
+        case EEdit::ClearHidden:
+            if (!Stroke(Player, ClearInput)) break;
+            if (ChatCount(World, TEXT("Clear in view: 0 target(s).")) != 1
+                || !MatchViews(World, ReadMenuPlans(World), false)) return End(false, TEXT("hidden clear count"));
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("input=Ctrl+Shift+X hidden_count=0"));
+            Advance(EEdit::ClearShow);
+            break;
+        case EEdit::ClearShow:
+            if (!Stroke(Player, EKeys::V, true)) break;
+            if (!CheckRemaining(World, 2)) return End(false, TEXT("C did not return after showing plans"));
+            Advance(EEdit::SaveFinal);
+            break;
+        case EEdit::SaveFinal:
+            if (Age == 1 && !FramesDirectory.IsEmpty() && !Legacy() && !ClearRun())
+                FScreenshotRequest::RequestScreenshot(FPaths::Combine(FramesDirectory, TEXT("E03-deleted.png")), true, false);
+            if (Age < 4) break;
+            if (!Saved && !Write(World, Slot)) return End(false, TEXT("invalid or existing final slot"));
+            if (Saved->IsSet()) return End(Saved->GetValue() && bLegacyMoved,
+                bLegacyMoved ? TEXT("editing and save completed") : TEXT("legacy J/V/K and save completed; M failed"));
+            break;
+        case EEdit::ReloadPreview:
+        {
+            auto* Hologram = Cast<AFGBlueprintHologram>(EquippedPreview(Character));
+            if (!Hologram || Hologram->mBuildableToNewRoot.IsEmpty()) break;
+            for (TActorIterator<AFGBuildableFoundation> It(&World); It; ++It)
+                if (It->GetActorLocation().Z > Character.GetActorLocation().Z + 5000)
+                    UE_LOG(LogSaveCheckEditing, Display, TEXT("reloaded_foundation=%s pose=%s"),
+                        *It->GetClass()->GetPathName(), *It->GetActorTransform().ToString());
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("library=%s preview=%s parts=%d"),
+                *Blueprint, *GetNameSafe(Hologram), Hologram->mBuildableToNewRoot.Num());
+            return End(true, TEXT("reloaded plans and Blueprint preview"));
+        }
+        }
+        return true;
+    }
+
+    bool TickEditing()
+    {
+        if (++Total > 1500) return End(false, TEXT("world timeout"));
+        if (!GEngine || !GEngine->GameViewport || !GEngine->GameViewport->Viewport || !FSlateApplication::IsInitialized())
+            return true;
+        for (const FWorldContext& Context : GEngine->GetWorldContexts())
+        {
+            auto* World = Context.World();
+            if (!World || !World->IsGameWorld() || !World->HasBegunPlay()
+                || !World->GetMapName().Contains(TEXT("Persistent_Level"))) continue;
+            auto* Save = UFGSaveSession::Get(World);
+            if (!Save) continue;
+            Save->SetAutoSaveEnabled(false);
+            auto* Player = World->GetFirstPlayerController();
+            auto* Character = Player ? Cast<AFGCharacterPlayer>(Player->GetPawn()) : nullptr;
+            if (Character && Player->PlayerInput) return TickEdit(*World, *Player, *Character);
+        }
+        return true;
+    }
+};
+}
+
+FTickerDelegate MakeEditingCheck(FString Mode, FString Slot, FString MoveSlot, FString Frames, int32 ExpectedCount)
+{
+    FEditingProbe Probe;
+    Probe.Mode = MoveTemp(Mode);
+    Probe.Slot = MoveTemp(Slot);
+    Probe.MoveSlot = MoveTemp(MoveSlot);
+    Probe.ExpectedCount = ExpectedCount;
+    if (!Frames.IsEmpty())
+    {
+        Probe.FramesDirectory = FPaths::ConvertRelativePathToFull(Frames);
+        IFileManager::Get().MakeDirectory(*Probe.FramesDirectory, true);
+    }
+    return FTickerDelegate::CreateLambda([Probe = MoveTemp(Probe)](float) mutable { return Probe.TickEditing(); });
 }

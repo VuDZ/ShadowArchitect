@@ -12,12 +12,14 @@
 class AFGBlueprintHologram;
 class AFGHologram;
 class FShadowAlignmentGuide;
+class FShadowClearInView;
 class FShadowPlanMenu;
 class IFileHandle;
 class UFGBuildGunStateBuild;
 class UFGBlueprintDescriptor;
 class UMaterialInterface;
 class UStaticMesh;
+class UTextRenderComponent;
 
 USTRUCT()
 struct FShadowMesh
@@ -81,7 +83,11 @@ public:
     bool Build(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material);
     bool BuildFootprint(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material);
     bool BuildWireframe(const FShadowPlacement& Plan, UStaticMesh& Cube);
+    void SetSelectionMarker(const FBox& Footprint);
+protected:
+    virtual void Tick(float DeltaSeconds) override;
 private:
+    UPROPERTY(Transient) TObjectPtr<UTextRenderComponent> SelectionMarker;
     bool BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cube,
         UMaterialInterface& MeshMaterial, UMaterialInterface& ProxyMaterial);
     void AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative);
@@ -110,6 +116,7 @@ protected:
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 private:
     friend class FShadowArchitectModule;
+    friend class FShadowClearInView;
     friend class FShadowPlanMenu;
 
     static constexpr double PlanPickRange = 10000.0;
@@ -121,6 +128,7 @@ private:
     EShadowView ViewMode = EShadowView::Ghost;
     TMap<FGuid, TWeakObjectPtr<AShadowProjection>> Views;
     FGuid Selected;
+    TSharedPtr<FShadowClearInView> ClearInView;
     TSharedPtr<FShadowPlanMenu> PlanMenu;
     TSharedPtr<FShadowAlignmentGuide> AlignmentGuide;
     UPROPERTY(Transient) TArray<FShadowAlignmentSegment> AlignmentLines;
@@ -147,6 +155,9 @@ private:
     void Place();
     void PlaceBlueprintOnRoof(const FGuid& Id);
     void SelectNext();
+    void SelectPlanUnderCrosshair();
+    void SelectPlan(const FShadowPlacement& Plan);
+    void SetSelectedPlan(const FShadowPlacement* Plan);
     void MoveSelected();
     bool TryMovePlan(const FGuid& Id);
     void DeleteSelected();
@@ -160,6 +171,8 @@ private:
     void ClearAlignmentGuide();
     void OpenPlanMenu();
     void ClosePlanMenu();
+    void RequestClearInView();
+    void CloseClearInView();
     bool ConfirmPendingPlanMove();
     void OpenSelectedBuildPreview();
     void OpenPlanBuildPreview(const FGuid& Id);

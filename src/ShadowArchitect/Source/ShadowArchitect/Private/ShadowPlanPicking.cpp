@@ -105,3 +105,15 @@ FGuid AShadowPlanSubsystem::FindPlanUnderCrosshair() const
     }
     return Target;
 }
+
+void AShadowPlanSubsystem::SelectPlanUnderCrosshair()
+{
+    const FGuid Target = FindPlanUnderCrosshair();
+    if (const auto* Plan = Plans.FindByPredicate([&Target](const auto& Entry) { return Entry.Id == Target; });
+        Target.IsValid() && Plan)
+    {
+        SelectPlan(*Plan);
+        return;
+    }
+    Notify(TEXT("No visible plan under the crosshair."));
+}

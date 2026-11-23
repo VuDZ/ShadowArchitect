@@ -1,6 +1,6 @@
 # R04. Показать стоимость и остаток для выбранного плана
 
-**Зависимости** — [R02](02-save-material-cost.md), [R03](03-count-available-materials.md), [E02](../e-plan-editing/02-select-plan-under-crosshair.md).
+**Зависимости** — [R02](02-save-material-cost.md), [R03](03-count-available-materials.md), [E02](../archive/e-plan-editing/02-select-plan-under-crosshair.md).
 
 ## Цель
 

@@ -11,4 +11,4 @@
 | [E05. Удалить выбранный экземпляр](05-delete-selected-plan.md) | [E03](03-highlight-selected-plan.md) |
 | [E06. Очистить видимые планы в пределах кадра](06-clear-plans-in-view.md) | [E05](05-delete-selected-plan.md) |
 
-[Все разделы](../README.md) · [План и условия проверки](../../work-plan.md)
+[Игровой протокол](verification.md) · [Все разделы](../../README.md) · [План и условия проверки](../../../work-plan.md)

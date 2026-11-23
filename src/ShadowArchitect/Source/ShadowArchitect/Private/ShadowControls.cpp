@@ -36,10 +36,12 @@ void AShadowPlanSubsystem::BindControls()
     FControl Controls[] = {
         { TEXT("ShadowArchitect.Place"), &AShadowPlanSubsystem::Place },
         { TEXT("ShadowArchitect.Select"), &AShadowPlanSubsystem::SelectNext },
+        { TEXT("ShadowArchitect.SelectUnderCrosshair"), &AShadowPlanSubsystem::SelectPlanUnderCrosshair },
         { TEXT("ShadowArchitect.Move"), &AShadowPlanSubsystem::MoveSelected },
         { TEXT("ShadowArchitect.Delete"), &AShadowPlanSubsystem::DeleteSelected },
         { TEXT("ShadowArchitect.Visibility"), &AShadowPlanSubsystem::ToggleVisibility },
         { TEXT("ShadowArchitect.View"), &AShadowPlanSubsystem::CycleView },
+        { TEXT("ShadowArchitect.ClearInView"), &AShadowPlanSubsystem::RequestClearInView },
         { TEXT("ShadowArchitect.OpenPlanMenu"), &AShadowPlanSubsystem::OpenPlanMenu }
     };
     for (FControl& Control : Controls)

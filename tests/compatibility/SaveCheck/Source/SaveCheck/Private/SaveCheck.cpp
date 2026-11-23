@@ -19,6 +19,7 @@ FTickerDelegate MakeBuildCheck(FString Mode);
 FTickerDelegate MakeKeybindingCheck(FString Mode);
 FTickerDelegate MakeMenuCheck(FString OutputDir);
 FTickerDelegate MakePlanActionsCheck(FString Mode);
+FTickerDelegate MakeEditingCheck(FString Mode, FString Slot, FString MoveSlot, FString Frames, int32 ExpectedCount);
 FTickerDelegate MakeAlignmentCheck(FString Frames, bool bGuide);
 FTickerDelegate MakeRoofStackCheck(FString Directory);
 
@@ -89,6 +90,27 @@ class FSaveCheck : public IModuleInterface
 public:
     virtual void StartupModule() override
     {
+        FString EditingMode;
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckEditing="), EditingMode))
+        {
+            FString Slot, MoveSlot, FramesDirectory;
+            int32 ExpectedCount = 1;
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckWrite="), Slot);
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckMoveWrite="), MoveSlot);
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckEditingFrames="), FramesDirectory);
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckEditingExpected="), ExpectedCount);
+            if (EditingMode != TEXT("legacy") && EditingMode != TEXT("legacy-map") && EditingMode != TEXT("edit") && EditingMode != TEXT("reload")
+                && EditingMode != TEXT("clear"))
+            {
+                UE_LOG(LogSaveCheck, Error, TEXT("Unknown SaveCheckEditing scenario"));
+                FPlatformMisc::RequestExit(false);
+                return;
+            }
+            Handle = FTSTicker::GetCoreTicker().AddTicker(
+                MakeEditingCheck(MoveTemp(EditingMode), MoveTemp(Slot), MoveTemp(MoveSlot), MoveTemp(FramesDirectory), ExpectedCount),
+                0.16f);
+            return;
+        }
         FString RoofStackFrames;
         if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckRoofStack="), RoofStackFrames))
         {

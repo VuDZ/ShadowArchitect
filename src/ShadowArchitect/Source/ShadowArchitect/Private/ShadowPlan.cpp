@@ -173,7 +173,7 @@ bool AShadowPlanSubsystem::TryPlace(FString& Result)
 bool AShadowPlanSubsystem::AddCapturedPlan(FShadowPlacement Plan, FString& Result)
 {
     if (!ShowPlan(Plan)) { Result = TEXT("Could not render the snapshot. Check the mesh/material and log."); return false; }
-    Selected = Plan.Id;
+    SetSelectedPlan(&Plan);
     Result = FString::Printf(TEXT("Placed %s [%s], %d objects.%s"), *Plan.BlueprintId,
         *Selected.ToString(), Plan.Parts.Num(), bVisible ? TEXT("") : TEXT(" Plans are hidden."));
     Plans.Add(MoveTemp(Plan));
@@ -188,13 +188,30 @@ void AShadowPlanSubsystem::SelectNext()
     {
         const auto& Plan = Plans[(Current + Offset) % Plans.Num()];
         if (!Views.FindRef(Plan.Id).IsValid()) continue;
-        Selected = Plan.Id;
-        Notify(FString::Printf(TEXT("Selected %s [%s] at %s cm, rotation %s"), *Plan.BlueprintId,
-            *Plan.Id.ToString(), *Plan.Transform.GetLocation().ToCompactString(),
-            *Plan.Transform.Rotator().ToCompactString()));
+        SelectPlan(Plan);
         return;
     }
     Notify(TEXT("No renderable plan to select."));
+}
+
+void AShadowPlanSubsystem::SelectPlan(const FShadowPlacement& Plan)
+{
+    SetSelectedPlan(&Plan);
+    Notify(FString::Printf(TEXT("Selected %s [%s] at %s cm, rotation %s"), *Plan.BlueprintId,
+        *Plan.Id.ToString(), *Plan.Transform.GetLocation().ToCompactString(),
+        *Plan.Transform.Rotator().ToCompactString()));
+}
+
+void AShadowPlanSubsystem::SetSelectedPlan(const FShadowPlacement* Plan)
+{
+    if (Plan) ClosePlanMenu();
+    const FGuid Id = Plan ? Plan->Id : FGuid();
+    if (Selected == Id) return;
+
+    if (auto* Previous = Views.FindRef(Selected).Get()) Previous->SetSelectionMarker(FBox(ForceInit));
+    Selected = Id;
+    if (Plan)
+        if (auto* View = Views.FindRef(Id).Get()) View->SetSelectionMarker(CalculateFootprint(Plan->Parts));
 }
 
 void AShadowPlanSubsystem::MoveSelected()
@@ -231,7 +248,7 @@ void AShadowPlanSubsystem::DeletePlan(const FGuid& Id)
     Views.Remove(Id);
     Plans.RemoveAt(Index);
     Notify(FString::Printf(TEXT("Removed plan [%s]."), *Id.ToString()));
-    if (Selected == Id) Selected.Invalidate();
+    if (Selected == Id) SetSelectedPlan(nullptr);
 }
 
 void AShadowPlanSubsystem::ToggleVisibility()
@@ -282,11 +299,12 @@ void AShadowPlanSubsystem::CycleView()
 void AShadowPlanSubsystem::ClearViews()
 {
     ClosePlanMenu();
+    CloseClearInView();
     ClearAlignmentGuide();
     for (const auto& Entry : Views)
         if (Entry.Value.IsValid()) Entry.Value->Destroy();
     Views.Reset();
-    Selected.Invalidate();
+    SetSelectedPlan(nullptr);
 }
 
 void AShadowPlanSubsystem::Restore()

@@ -292,6 +292,7 @@ void AShadowPlanSubsystem::OpenPlanMenu()
         }
         auto Menu = MakeShared<FShadowPlanMenu>(*this, *PC, *GameViewport, Target);
         if (!FSlateApplication::Get().RegisterInputPreProcessor(Menu, 0)) return;
+        CloseClearInView();
         PlanMenu = MoveTemp(Menu);
     }
     const auto Menu = PlanMenu;

@@ -1,7 +1,10 @@
 #include "ShadowPlan.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/TextRenderComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 #include "Materials/Material.h"
 
 namespace
@@ -38,8 +41,52 @@ AShadowProjection::AShadowProjection()
 {
     SetRootComponent(CreateDefaultSubobject<USceneComponent>(TEXT("PlanOrigin")));
     RootComponent->SetMobility(EComponentMobility::Movable);
-    PrimaryActorTick.bCanEverTick = false;
+    PrimaryActorTick.bCanEverTick = true;
+    PrimaryActorTick.bStartWithTickEnabled = false;
     SetActorEnableCollision(false);
+}
+
+void AShadowProjection::SetSelectionMarker(const FBox& Footprint)
+{
+    if (!Footprint.IsValid)
+    {
+        if (SelectionMarker) SelectionMarker->DestroyComponent();
+        SelectionMarker = nullptr;
+        SetActorTickEnabled(false);
+        return;
+    }
+
+    // Keep the marker outside the instance components replaced when changing display mode.
+    SelectionMarker = NewObject<UTextRenderComponent>(this, NAME_None, RF_Transient);
+    SelectionMarker->SetupAttachment(GetRootComponent());
+    SelectionMarker->SetMobility(EComponentMobility::Movable);
+    SelectionMarker->SetAbsolute(false, true, true);
+    const FVector Center = Footprint.GetCenter();
+    SelectionMarker->SetRelativeLocation(FVector(Center.X, Center.Y, Footprint.Max.Z + 24.0));
+    SelectionMarker->SetText(NSLOCTEXT("ShadowArchitect", "SelectedPlanMarker", "SELECTED"));
+    SelectionMarker->SetHorizontalAlignment(EHTA_Center);
+    SelectionMarker->SetVerticalAlignment(EVRTA_TextBottom);
+    SelectionMarker->SetTextRenderColor(FColor(255, 198, 75));
+    SelectionMarker->SetWorldSize(32.0f);
+    SelectionMarker->SetCanEverAffectNavigation(false);
+    SelectionMarker->SetCastShadow(false);
+    SelectionMarker->RegisterComponent();
+    SetActorTickEnabled(true);
+}
+
+void AShadowProjection::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+    if (!SelectionMarker || IsHidden()) return;
+    const auto* Player = GetWorld()->GetFirstPlayerController();
+    if (!IsValid(Player)) return;
+
+    FVector Camera;
+    FRotator Aim;
+    Player->GetPlayerViewPoint(Camera, Aim);
+    const FVector ToCamera = Camera - SelectionMarker->GetComponentLocation();
+    SelectionMarker->SetWorldRotation(ToCamera.Rotation());
+    SelectionMarker->SetWorldScale3D(FVector(FMath::Clamp(ToCamera.Size() / 1200.0, 0.45, 12.0)));
 }
 
 void AShadowProjection::AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative)

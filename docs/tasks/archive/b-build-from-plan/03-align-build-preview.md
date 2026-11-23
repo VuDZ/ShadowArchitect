@@ -1,6 +1,6 @@
 # B03. Открыть строительный предпросмотр на месте плана
 
-**Зависимости** — [B02](02-validate-source-blueprint.md), [E02](../../e-plan-editing/02-select-plan-under-crosshair.md).
+**Зависимости** — [B02](02-validate-source-blueprint.md), [E02](../e-plan-editing/02-select-plan-under-crosshair.md).
 
 ## Цель
 
