@@ -2,11 +2,11 @@
 
 Планирование фабрики в одиночной Satisfactory. Игрок выставляет пользовательский Blueprint штатным Build Gun и отдельной клавишей фиксирует его проекцию. Исходники рассчитаны на Windows Steam, Satisfactory **CL 520140**, SML **3.12.1** и UE **5.6.1-CSS**. [Совместимость в релизе SML](https://github.com/satisfactorymodding/SatisfactoryModLoader/releases/tag/v3.12.1)
 
-**Локальная сборка 0.1.2 для Steam Windows.** Архив `dist/ShadowArchitect-0.1.2-Steam-Windows.zip` включает Ghost, Wireframe, Footprint и переназначение клавиш. При закрытой игре распакуйте архив в `<игра>/FactoryGame/Mods/ShadowArchitect/` рядом с SML 3.12.1. В этом каталоге должен находиться `ShadowArchitect.uplugin` с `VersionName` равным `0.1.2`. Архивы хранятся локально. Для чистого клона используйте инструкцию сборки ниже. [Проверка V03](docs/tasks/V03.md)
+**Локальная сборка 0.1.2 для Steam Windows.** Архив `dist/ShadowArchitect-0.1.2-Steam-Windows.zip` включает Ghost, Wireframe, Footprint и переназначение клавиш. При закрытой игре распакуйте архив в `<игра>/FactoryGame/Mods/ShadowArchitect/` рядом с SML 3.12.1. В этом каталоге должен находиться `ShadowArchitect.uplugin` с `VersionName` равным `0.1.2`. Архивы хранятся локально. Для чистого клона используйте инструкцию сборки ниже. [Проверка V03](docs/tasks/v-display-modes/03-switch-display-mode.md)
 
 Офлайн прочитаны 25 игровых Blueprint и воспроизведён чертёж из 16 фундаментов. [Исходники](src/ShadowArchitect/) · [Результаты исследования](docs/feasibility.md) · [Архитектура](docs/architecture.md)
 
-[План работ с задачами и критериями приёмки](docs/work-plan.md) · [Исходные пожелания](docs/roadmap.md)
+[Задачи по возможностям мода](docs/tasks/README.md) · [План работ и условия проверки](docs/work-plan.md) · [Исходные пожелания](docs/roadmap.md)
 
 **Перед отключением мода сохраните отдельный слот.** Если записать мир с отключённым Shadow Architect, после включения мода в этом слоте уже не будет размещённых проекций. [Проверка сохранений и обновления](docs/save-compatibility.md)
 
