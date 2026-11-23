@@ -114,6 +114,7 @@ void AShadowPlanSubsystem::BindControls()
     Bind(DeleteChord, DeleteKey, true, &AShadowPlanSubsystem::DeleteSelected);
     Bind(VisibilityChord, VisibilityKey, true, &AShadowPlanSubsystem::ToggleVisibility);
     Bind(ViewChord, ViewKey, true, &AShadowPlanSubsystem::CycleView);
+    Bind(BuildPreviewChord, EKeys::F8, true, &AShadowPlanSubsystem::OpenSelectedBuildPreview);
     const FString PlaceHint = PlaceBinding.IsValidChord()
         ? PlaceBinding.GetInputText().ToString() + TEXT(" or /shadowplace") : TEXT("/shadowplace");
     Notify(FString::Printf(TEXT("Ready. %d saved plan(s). Place with %s."), Plans.Num(), *PlaceHint));

@@ -156,7 +156,7 @@ struct FViewProbe
         const TCHAR* Names[] = { TEXT("Place"), TEXT("Select"), TEXT("Move"), TEXT("Delete"), TEXT("Visibility"), TEXT("View") };
         const auto* Subsystem = FindPlanSubsystem(World);
         const auto* Input = Subsystem ? Subsystem->InputComponent.Get() : nullptr;
-        if (!Input || Input->KeyBindings.Num() != UE_ARRAY_COUNT(Keys)) return false;
+        if (!Input || Input->KeyBindings.Num() < UE_ARRAY_COUNT(Keys)) return false;
         bool bMatch = true;
         for (int32 Index = 0; Index < UE_ARRAY_COUNT(Keys); ++Index)
         {

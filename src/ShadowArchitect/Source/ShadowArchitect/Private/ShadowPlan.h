@@ -109,9 +109,12 @@ private:
     UPROPERTY(Config) FInputChord DeleteChord;
     UPROPERTY(Config) FInputChord VisibilityChord;
     UPROPERTY(Config) FInputChord ViewChord;
+    UPROPERTY(Config) FInputChord BuildPreviewChord;
     EShadowView ViewMode = EShadowView::Ghost;
     TMap<FGuid, TWeakObjectPtr<AShadowProjection>> Views;
     FGuid Selected;
+    TWeakObjectPtr<AFGBlueprintHologram> PlanBuildPreview;
+    FGuid PlanBuildId;
     FTimerHandle InputRetry;
     void Restore();
     bool ShowPlan(const FShadowPlacement& Plan);
@@ -126,6 +129,7 @@ private:
     void DeleteSelected();
     void ToggleVisibility();
     void CycleView();
+    void OpenSelectedBuildPreview();
 };
 
 UCLASS()

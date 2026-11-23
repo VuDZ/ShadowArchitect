@@ -31,10 +31,11 @@
 | Ctrl+Shift+K | Удалить выбранный план. Для следующего удаления нужно снова выбрать план. |
 | Ctrl+Shift+V | Скрыть или показать все планы в мире. Видимость сохраняется вместе с миром. |
 | Ctrl+Shift+G | Переключить вид всех планов по кругу Ghost → Wireframe → Footprint → Ghost. |
+| Ctrl+Shift+F8 | Открыть штатный строительный предпросмотр проверенного Blueprint на месте выбранного плана. |
 
-При загрузке мира используется Ghost.
+При загрузке мира используется Ghost. Для строительного предпросмотра выберите план через Ctrl+Shift+J и подойдите на расстояние Build Gun. Предпросмотр фиксируется в сохранённой позе. Чтобы отменить, уберите Build Gun обычным способом. Старые планы без отпечатка источника по-прежнему доступны для просмотра и редактирования.
 
-При закрытой игре откройте `%LOCALAPPDATA%/FactoryGame/Saved/Config/Windows/Game.ini`. В этом блоке можно указать полные сочетания для всех шести действий. Пример воспроизводит стандартные привязки. Пропущенные модификаторы в строке `Chord` считаются выключенными.
+При закрытой игре откройте `%LOCALAPPDATA%/FactoryGame/Saved/Config/Windows/Game.ini`. В этом блоке можно указать полные сочетания клавиш. Пример воспроизводит стандартные привязки. Пропущенные модификаторы в строке `Chord` считаются выключенными.
 
 ```ini
 [/Script/ShadowArchitect.ShadowPlanSubsystem]
@@ -44,6 +45,7 @@ MoveChord=(Key=M,bCtrl=True,bShift=True)
 DeleteChord=(Key=K,bCtrl=True,bShift=True)
 VisibilityChord=(Key=V,bCtrl=True,bShift=True)
 ViewChord=(Key=G,bCtrl=True,bShift=True)
+BuildPreviewChord=(Key=F8,bCtrl=True,bShift=True)
 ```
 
 Существующие `PlaceKey`, `SelectKey`, `MoveKey`, `DeleteKey`, `VisibilityKey` и `ViewKey` работают со стандартными модификаторами. Если заданы и `Key`, и `Chord` для одного действия, используется сочетание из `Chord`. Для Alt и клавиши Windows используйте `bAlt=True` и `bCmd=True`.
