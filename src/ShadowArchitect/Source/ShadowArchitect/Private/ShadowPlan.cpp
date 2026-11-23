@@ -2,7 +2,6 @@
 #include "ShadowBlueprintSource.h"
 #include "Command/CommandSender.h"
 #include "Components/ActorComponent.h"
-#include "Components/InputComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "Equipment/FGBuildGunBuild.h"
@@ -74,12 +73,6 @@ AShadowPlanSubsystem::AShadowPlanSubsystem()
 {
     ReplicationPolicy = ESubsystemReplicationPolicy::SpawnOnServer;
     PrimaryActorTick.bCanEverTick = false;
-    PlaceKey = EKeys::F7;
-    SelectKey = EKeys::J;
-    MoveKey = EKeys::M;
-    DeleteKey = EKeys::K;
-    VisibilityKey = EKeys::V;
-    ViewKey = EKeys::G;
 }
 
 void AShadowPlanSubsystem::BeginPlay()
@@ -94,39 +87,6 @@ void AShadowPlanSubsystem::BeginPlay()
             *GetNameSafe(ProxyCube.Get()), *GetNameSafe(ShadowMaterial.Get()));
     Restore();
     BindControls();
-}
-
-void AShadowPlanSubsystem::BindControls()
-{
-    APlayerController* PC = GetWorld()->GetFirstPlayerController();
-    if (!IsValid(PC) || !PC->IsLocalController() || !PC->PlayerInput)
-    {
-        GetWorldTimerManager().SetTimer(InputRetry, this, &AShadowPlanSubsystem::BindControls, 0.5f, false);
-        return;
-    }
-    EnableInput(PC);
-    if (!InputComponent)
-    {
-        UE_LOG(LogShadowArchitect, Error, TEXT("Unable to attach local input"));
-        return;
-    }
-    auto Bind = [this](const FInputChord& Configured, FKey Key, bool bUseCtrlShift, void (AShadowPlanSubsystem::*Action)())
-    {
-        const FInputChord Chord = Configured.IsValidChord() ? Configured : FInputChord(Key, bUseCtrlShift, bUseCtrlShift, false, false);
-        if (Chord.IsValidChord())
-            InputComponent->BindKey(Chord, IE_Pressed, this, Action).bConsumeInput = false;
-        return Chord;
-    };
-    const FInputChord PlaceBinding = Bind(PlaceChord, PlaceKey, false, &AShadowPlanSubsystem::Place);
-    Bind(SelectChord, SelectKey, true, &AShadowPlanSubsystem::SelectNext);
-    Bind(MoveChord, MoveKey, true, &AShadowPlanSubsystem::MoveSelected);
-    Bind(DeleteChord, DeleteKey, true, &AShadowPlanSubsystem::DeleteSelected);
-    Bind(VisibilityChord, VisibilityKey, true, &AShadowPlanSubsystem::ToggleVisibility);
-    Bind(ViewChord, ViewKey, true, &AShadowPlanSubsystem::CycleView);
-    Bind(BuildPreviewChord, EKeys::F8, true, &AShadowPlanSubsystem::OpenSelectedBuildPreview);
-    const FString PlaceHint = PlaceBinding.IsValidChord()
-        ? PlaceBinding.GetInputText().ToString() + TEXT(" or /shadowplace") : TEXT("/shadowplace");
-    Notify(FString::Printf(TEXT("Ready. %d saved plan(s). Place with %s."), Plans.Num(), *PlaceHint));
 }
 
 AFGHologram* AShadowPlanSubsystem::ActivePreview() const
@@ -229,26 +189,38 @@ void AShadowPlanSubsystem::SelectNext()
 
 void AShadowPlanSubsystem::MoveSelected()
 {
-    auto* Plan = Plans.FindByPredicate([this](const auto& P) { return P.Id == Selected; });
-    auto View = Views.FindRef(Selected);
-    if (!Plan || !View.IsValid()) { Notify(TEXT("Select a plan first.")); return; }
+    if (!ConfirmPendingPlanMove()) TryMovePlan(Selected);
+}
+
+bool AShadowPlanSubsystem::TryMovePlan(const FGuid& Id)
+{
+    auto* Plan = Plans.FindByPredicate([&Id](const auto& P) { return P.Id == Id; });
+    auto View = Views.FindRef(Id);
+    if (!Plan || !View.IsValid()) { Notify(TEXT("Select a plan first.")); return false; }
     AFGHologram* Preview = ActivePreview();
-    if (!Preview) { Notify(TEXT("Position a Build Gun preview at the new origin first.")); return; }
+    if (!Preview) { Notify(TEXT("Position a Build Gun preview at the new origin first.")); return false; }
     const FTransform Target = Preview->GetActorTransform();
-    if (!Target.IsValid() || !View->SetActorTransform(Target)) { Notify(TEXT("Cannot move plan.")); return; }
+    if (!Target.IsValid() || !View->SetActorTransform(Target)) { Notify(TEXT("Cannot move plan.")); return false; }
     Plan->Transform = Target;
-    Notify(FString::Printf(TEXT("Moved %s to %s cm"), *Plan->BlueprintId, *Target.GetLocation().ToCompactString()));
+    Notify(FString::Printf(TEXT("Moved %s [%s] to %s cm"), *Plan->BlueprintId,
+        *Id.ToString(), *Target.GetLocation().ToCompactString()));
+    return true;
 }
 
 void AShadowPlanSubsystem::DeleteSelected()
 {
-    const int32 Index = Plans.IndexOfByPredicate([this](const auto& P) { return P.Id == Selected; });
-    if (!Selected.IsValid() || Index == INDEX_NONE) { Notify(TEXT("Select a plan first.")); return; }
-    if (auto View = Views.FindRef(Selected); View.IsValid()) View->Destroy();
-    Views.Remove(Selected);
+    DeletePlan(Selected);
+}
+
+void AShadowPlanSubsystem::DeletePlan(const FGuid& Id)
+{
+    const int32 Index = Plans.IndexOfByPredicate([&Id](const auto& P) { return P.Id == Id; });
+    if (!Id.IsValid() || Index == INDEX_NONE) { Notify(TEXT("Select a plan first.")); return; }
+    if (auto View = Views.FindRef(Id); View.IsValid()) View->Destroy();
+    Views.Remove(Id);
     Plans.RemoveAt(Index);
-    Notify(FString::Printf(TEXT("Removed plan [%s]."), *Selected.ToString()));
-    Selected.Invalidate();
+    Notify(FString::Printf(TEXT("Removed plan [%s]."), *Id.ToString()));
+    if (Selected == Id) Selected.Invalidate();
 }
 
 void AShadowPlanSubsystem::ToggleVisibility()
@@ -297,6 +269,7 @@ void AShadowPlanSubsystem::CycleView()
 
 void AShadowPlanSubsystem::ClearViews()
 {
+    ClosePlanMenu();
     for (const auto& Entry : Views)
         if (Entry.Value.IsValid()) Entry.Value->Destroy();
     Views.Reset();

@@ -11,8 +11,13 @@
 #include "EngineUtils.h"
 #include "Equipment/FGBuildGunBuild.h"
 #include "FGBlueprintSubsystem.h"
+#include "FGChatManager.h"
 #include "FGCharacterPlayer.h"
+#include "FGGameUserSettings.h"
+#include "FGInputLibrary.h"
+#include "FGPlayerInput.h"
 #include "FGSaveSession.h"
+#include "Framework/Application/SlateApplication.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/FileManager.h"
 #include "Interfaces/IPluginManager.h"
@@ -20,6 +25,8 @@
 #include "InputKeyEventArgs.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/Paths.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Modules/ModuleManager.h"
 #include "UnrealClient.h"
 #include "UObject/UnrealType.h"
@@ -127,7 +134,8 @@ void SendKey(APlayerController& PC, FKey Key, EInputEvent Event)
 
 struct FViewProbe
 {
-    enum class EStep { Ready, Before, Cycle, After, Wireframe, Blueprint, Place, Hide, Footprint, Show };
+    enum class EStep { Ready, LegacySelect, Before, Cycle, After, Wireframe, Blueprint, Place, Hide, Footprint, Show,
+        UnmodifiedQ, CloseBuildMenu, OpenForRebind, OldPlacement, ReboundPlacement, ChatText, ChatCommand };
     EStep Step = EStep::Ready;
     FString OutputDir;
     TArray<FProjectionState> Initial;
@@ -135,35 +143,47 @@ struct FViewProbe
     int32 Ticks = 0;
     int32 Wait = 0;
     int32 Cycles = 0;
+    int32 LegacySelections = 0;
     bool bPressed = false;
     bool bCustomKeys = false;
+    bool bLegacyKeys = false;
+    FString CtrlQMode;
     TOptional<FVector> BuildTarget;
 
-    FInputChord PlaceInput() const { return bCustomKeys ? FInputChord(EKeys::F8, false, false, true, false) : FInputChord(EKeys::F7); }
+    FInputChord PlaceInput() const
+    {
+        if (!CtrlQMode.IsEmpty()) return FInputChord(EKeys::Q, false, true, false, false);
+        return bCustomKeys || bLegacyKeys ? FInputChord(EKeys::F8, false, false, true, false) : FInputChord(EKeys::F7);
+    }
     FInputChord ViewInput() const { return bCustomKeys ? FInputChord(EKeys::F11, false, false, true, false) : FInputChord(EKeys::G, true, true, false, false); }
     FInputChord VisibilityInput() const { return bCustomKeys ? FInputChord(EKeys::F9, false, false, true, false) : FInputChord(EKeys::V, true, true, false, false); }
 
-    bool CheckBindings(UWorld& World) const
+    bool CheckBindings(APlayerController& Player) const
     {
         const FInputChord Keys[] = {
             PlaceInput(),
-            FInputChord(bCustomKeys ? EKeys::F5 : EKeys::J, true, true, false, false),
+            FInputChord(bCustomKeys || bLegacyKeys ? EKeys::F5 : EKeys::J, true, true, false, false),
             bCustomKeys ? FInputChord(EKeys::F6, true, false, false, false) : FInputChord(EKeys::M, true, true, false, false),
             bCustomKeys ? FInputChord(EKeys::F10, false, true, false, false) : FInputChord(EKeys::K, true, true, false, false),
             VisibilityInput(),
             ViewInput()
         };
-        const TCHAR* Names[] = { TEXT("Place"), TEXT("Select"), TEXT("Move"), TEXT("Delete"), TEXT("Visibility"), TEXT("View") };
-        const auto* Subsystem = FindPlanSubsystem(World);
-        const auto* Input = Subsystem ? Subsystem->InputComponent.Get() : nullptr;
-        if (!Input || Input->KeyBindings.Num() < UE_ARRAY_COUNT(Keys)) return false;
+        const TCHAR* Names[] = { TEXT("ShadowArchitect.Place"), TEXT("ShadowArchitect.Select"),
+            TEXT("ShadowArchitect.Move"), TEXT("ShadowArchitect.Delete"), TEXT("ShadowArchitect.Visibility"),
+            TEXT("ShadowArchitect.View") };
         bool bMatch = true;
         for (int32 Index = 0; Index < UE_ARRAY_COUNT(Keys); ++Index)
         {
-            const auto& Chord = Input->KeyBindings[Index].Chord;
+            FKey Key;
+            TArray<FKey> Modifiers;
+            const bool bMapped = UFGInputLibrary::GetCurrentMappingForAction(&Player, FName(Names[Index]), Key, Modifiers);
+            const FInputChord Chord(Key, Modifiers.Contains(EKeys::LeftShift) || Modifiers.Contains(EKeys::RightShift),
+                Modifiers.Contains(EKeys::LeftControl) || Modifiers.Contains(EKeys::RightControl),
+                Modifiers.Contains(EKeys::LeftAlt) || Modifiers.Contains(EKeys::RightAlt),
+                Modifiers.Contains(EKeys::LeftCommand) || Modifiers.Contains(EKeys::RightCommand));
             UE_LOG(LogSaveCheckViews, Display, TEXT("binding=%s chord=%s match=%d"),
-                Names[Index], *Chord.GetInputText().ToString(), Chord == Keys[Index]);
-            bMatch &= Chord == Keys[Index];
+                Names[Index], *Chord.GetInputText().ToString(), bMapped && Chord == Keys[Index]);
+            bMatch &= bMapped && Chord == Keys[Index];
         }
         return bMatch;
     }
@@ -221,6 +241,8 @@ struct FViewProbe
             }
             else if (Previous[Index].Meshes != Current[Index].Meshes) return false;
         }
+        for (int32 Index = Previous.Num(); Index < Current.Num(); ++Index)
+            UE_LOG(LogSaveCheckViews, Display, TEXT("action=%s new_guid=%s"), Action, *Current[Index].Id.ToString());
 
         TArray<FString> MeshCounts;
         for (const auto& State : Current) MeshCounts.Add(FString::FromInt(State.Meshes.Num()));
@@ -307,8 +329,15 @@ struct FViewProbe
                 *GetNameSafe(Hit.GetActor()), Preview && Preview->IsValidHitResult(Hit));
         }
         if (!Preview || Preview->IsHidden() || Preview->IsDisabled() || Preview->mBuildableToNewRoot.IsEmpty()) return false;
-        UE_LOG(LogSaveCheckViews, Display, TEXT("preview_roots=%d placement_cm=%s"),
-            Preview->mBuildableToNewRoot.Num(), *Preview->GetActorLocation().ToString());
+        const auto Focus = FSlateApplication::Get().GetKeyboardFocusedWidget();
+        UE_LOG(LogSaveCheckViews, Display, TEXT("preview_roots=%d placement_cm=%s focus=%s cursor=%d"),
+            Preview->mBuildableToNewRoot.Num(), *Preview->GetActorLocation().ToString(),
+            Focus ? *Focus->GetTypeAsString() : TEXT("none"), Player.bShowMouseCursor);
+        if (const auto* Input = Cast<UFGPlayerInput>(Player.PlayerInput))
+            for (const auto& Mapping : Input->GetEnhancedActionMappings())
+                if (Mapping.Key == EKeys::F7 || Mapping.Key == EKeys::Q)
+                    UE_LOG(LogSaveCheckViews, Display, TEXT("active_mapping key=%s action=%s triggers=%d"),
+                        *Mapping.Key.ToString(), *GetNameSafe(Mapping.Action.Get()), Mapping.Triggers.Num());
         return true;
     }
 
@@ -320,14 +349,56 @@ struct FViewProbe
         {
         case EStep::Ready:
             if (Wait < 7) break;
-            if (!CheckLoadedModule() || !CheckBindings(World) || !Confirm(World, TEXT("initial"), 0, 2, true))
+            if (CtrlQMode == TEXT("rebind"))
+            {
+                UFGInputLibrary::RebindEnhancedKeyMapping(&Player, TEXT("ShadowArchitect.Place"), EKeys::Q, { EKeys::LeftControl });
+                if (auto* Settings = UGameUserSettings::GetGameUserSettings()) Settings->SaveSettings();
+            }
+            else if (CtrlQMode == TEXT("reset"))
+            {
+                if (!CheckBindings(Player)) return Finish(false, TEXT("Ctrl+Q before reset"));
+                UFGInputLibrary::ResetAllEnhancedKeyBindings(&Player);
+                if (auto* Settings = UGameUserSettings::GetGameUserSettings()) Settings->SaveSettings();
+                CtrlQMode.Reset();
+            }
+            if (!CheckLoadedModule() || !CheckBindings(Player) || !Confirm(World, TEXT("initial"), 0, 2, true))
                 return Finish(false, TEXT("loaded module, bindings or initial Ghost"));
             Initial = Previous;
             for (const auto& State : Initial)
                 UE_LOG(LogSaveCheckViews, Display, TEXT("initial id=%s transform=%s"), *State.Id.ToString(), *State.Transform.ToString());
+            if (!CtrlQMode.IsEmpty())
+            {
+                SetStep(EStep::UnmodifiedQ);
+                break;
+            }
+            if (bLegacyKeys)
+            {
+                SetStep(EStep::LegacySelect);
+                break;
+            }
             if (!SetCamera(World, Player)) return Finish(false, TEXT("camera"));
             SetStep(EStep::Before);
             break;
+        case EStep::LegacySelect:
+        {
+            if (!Stroke(Player, FInputChord(EKeys::F5, true, true, false, false))) break;
+            const FGuid Expected = Initial[LegacySelections].Id;
+            auto* Chat = AFGChatManager::Get(&World);
+            TArray<FChatMessageStruct> Messages;
+            if (Chat) Chat->GetReceivedChatMessages(Messages);
+            if (!Messages.ContainsByPredicate([&Expected](const FChatMessageStruct& Message)
+            {
+                const FString Text = Message.MessageText.ToString();
+                return Text.StartsWith(TEXT("Selected ")) && Text.Contains(Expected.ToString());
+            })) return Finish(false, TEXT("selection after migration"));
+            UE_LOG(LogSaveCheckViews, Display, TEXT("input=Ctrl+Shift+F5 selected=%s"), *Expected.ToString());
+            if (++LegacySelections == Initial.Num())
+            {
+                if (!SetCamera(World, Player)) return Finish(false, TEXT("camera"));
+                SetStep(EStep::Before);
+            }
+            break;
+        }
         case EStep::Before:
             if (Frame(TEXT("Ghost-before.png"))) SetStep(EStep::Cycle);
             break;
@@ -376,6 +447,62 @@ struct FViewProbe
         case EStep::Show:
             if (!Stroke(Player, VisibilityInput())) break;
             return Confirm(World, *VisibilityInput().GetInputText().ToString(), 2, 3, true) ? Finish(true, TEXT("completed")) : Finish(false, TEXT("show Footprint"));
+        case EStep::UnmodifiedQ:
+            if (!Stroke(Player, FInputChord(EKeys::Q))) break;
+            UE_LOG(LogSaveCheckViews, Display, TEXT("input=Q build_menu_cursor=%d"), Player.bShowMouseCursor);
+            if (!Player.bShowMouseCursor || !Confirm(World, TEXT("Q with Build Gun stowed"), 0, 2, true))
+                return Finish(false, TEXT("stock Q"));
+            SetStep(EStep::CloseBuildMenu);
+            break;
+        case EStep::CloseBuildMenu:
+            if (!Stroke(Player, FInputChord(EKeys::Escape))) break;
+            if (Player.bShowMouseCursor || !OpenPreview(World, Player))
+                return Finish(false, TEXT("close Build Menu"));
+            SetStep(EStep::OpenForRebind);
+            break;
+        case EStep::OpenForRebind:
+            if (PreviewReady(Player)) SetStep(EStep::OldPlacement);
+            break;
+        case EStep::OldPlacement:
+            if (!Stroke(Player, FInputChord(EKeys::F7))) break;
+            if (!Confirm(World, TEXT("old F7"), 0, 2, true))
+                return Finish(false, TEXT("old F7 still placed a plan"));
+            SetStep(EStep::ReboundPlacement);
+            break;
+        case EStep::ReboundPlacement:
+            if (!Stroke(Player, PlaceInput())) break;
+            UE_LOG(LogSaveCheckViews, Display, TEXT("input=Ctrl+Q build_menu_cursor=%d"), Player.bShowMouseCursor);
+            if (Player.bShowMouseCursor || !Confirm(World, TEXT("Ctrl+Q with Blueprint preview"), 0, 3, true))
+                return Finish(false, TEXT("rebound placement"));
+            if (auto* Chat = Player.FindFunction(TEXT("OnChat"))) Player.ProcessEvent(Chat, nullptr);
+            SetStep(EStep::ChatText);
+            break;
+        case EStep::ChatText:
+        {
+            auto& Slate = FSlateApplication::Get();
+            const auto Focus = Slate.GetKeyboardFocusedWidget();
+            if (!Focus || !Focus->GetTypeAsString().Contains(TEXT("EditableText"))) break;
+            if (Wait == 1)
+            {
+                Slate.ProcessKeyCharEvent(FCharacterEvent(TEXT('q'), FModifierKeysState(), 0u, false));
+                UE_LOG(LogSaveCheckViews, Display, TEXT("chat focus=%s typed=q"), *Focus->GetTypeAsString());
+            }
+            if (!Stroke(Player, PlaceInput())) break;
+            if (!Confirm(World, TEXT("typing in chat"), 0, 3, true)) return Finish(false, TEXT("chat input"));
+            if (auto* Character = Cast<AFGCharacterPlayer>(Player.GetPawn())) Character->UnequipBuildGun();
+            if (auto* Chat = Player.FindFunction(TEXT("EnterChatMessage")))
+            {
+                struct { FString Message; } Args{ TEXT("/shadowplace") };
+                Player.ProcessEvent(Chat, &Args);
+            }
+            SetStep(EStep::ChatCommand);
+            break;
+        }
+        case EStep::ChatCommand:
+            if (Wait > 2)
+                return Finish(Confirm(World, TEXT("/shadowplace with Build Gun stowed"), 0, 3, true),
+                    TEXT("rebound placement and chat"));
+            break;
         }
         return true;
     }
@@ -405,5 +532,7 @@ FTickerDelegate MakeViewCheck(FString OutputDir, bool bCustomKeys)
     FViewProbe Probe;
     Probe.OutputDir = MoveTemp(OutputDir);
     Probe.bCustomKeys = bCustomKeys;
+    Probe.bLegacyKeys = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckLegacyKeys"));
+    FParse::Value(FCommandLine::Get(), TEXT("SaveCheckViewCtrlQ="), Probe.CtrlQMode);
     return FTickerDelegate::CreateLambda([Probe = MoveTemp(Probe)](float) mutable { return Probe.Tick(); });
 }

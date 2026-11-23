@@ -11,6 +11,7 @@
 
 class AFGBlueprintHologram;
 class AFGHologram;
+class FShadowPlanMenu;
 class IFileHandle;
 class UFGBuildGunStateBuild;
 class UFGBlueprintDescriptor;
@@ -97,27 +98,17 @@ protected:
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 private:
     friend class FShadowArchitectModule;
+    friend class FShadowPlanMenu;
 
     UPROPERTY(SaveGame) TArray<FShadowPlacement> Plans;
     UPROPERTY(SaveGame) bool bVisible = true;
     UPROPERTY(Transient) TObjectPtr<UStaticMesh> ProxyCube;
     UPROPERTY(Transient) TObjectPtr<UMaterialInterface> ShadowMaterial;
-    UPROPERTY(Config) FKey PlaceKey;
-    UPROPERTY(Config) FKey SelectKey;
-    UPROPERTY(Config) FKey MoveKey;
-    UPROPERTY(Config) FKey DeleteKey;
-    UPROPERTY(Config) FKey VisibilityKey;
-    UPROPERTY(Config) FKey ViewKey;
-    UPROPERTY(Config) FInputChord PlaceChord;
-    UPROPERTY(Config) FInputChord SelectChord;
-    UPROPERTY(Config) FInputChord MoveChord;
-    UPROPERTY(Config) FInputChord DeleteChord;
-    UPROPERTY(Config) FInputChord VisibilityChord;
-    UPROPERTY(Config) FInputChord ViewChord;
     UPROPERTY(Config) FInputChord BuildPreviewChord;
     EShadowView ViewMode = EShadowView::Ghost;
     TMap<FGuid, TWeakObjectPtr<AShadowProjection>> Views;
     FGuid Selected;
+    TSharedPtr<FShadowPlanMenu> PlanMenu;
     TWeakObjectPtr<AFGBlueprintHologram> PlanBuildPreview;
     FGuid PlanBuildId;
     TWeakObjectPtr<UFGBuildGunStateBuild> ClosingBuildState;
@@ -129,15 +120,25 @@ private:
     bool BuildView(AShadowProjection& View, const FShadowPlacement& Plan, EShadowView Mode) const;
     void ClearViews();
     void BindControls();
+    static bool CanUsePlanControls(const APlayerController& Player);
+    bool ImportLegacyKeybindings(APlayerController& Player);
+    FString KeybindingHint(APlayerController& Player, FName Mapping) const;
     void Notify(const FString& Text) const;
     AFGHologram* ActivePreview() const;
     void Place();
     void SelectNext();
     void MoveSelected();
+    bool TryMovePlan(const FGuid& Id);
     void DeleteSelected();
+    void DeletePlan(const FGuid& Id);
     void ToggleVisibility();
     void CycleView();
+    FGuid FindPlanUnderCrosshair() const;
+    void OpenPlanMenu();
+    void ClosePlanMenu();
+    bool ConfirmPendingPlanMove();
     void OpenSelectedBuildPreview();
+    void OpenPlanBuildPreview(const FGuid& Id);
     static void InstallPlanConstructionHooks();
     static void RemovePlanConstructionHooks();
     TUniquePtr<IFileHandle> VerifyPlanConstruction(UFGBuildGunStateBuild& State,

@@ -4,16 +4,21 @@
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "FGBlueprintSubsystem.h"
+#include "FGPlayerController.h"
 #include "FGSaveSession.h"
 #include "FGSaveSystem.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/SecureHash.h"
+#include "UI/FGGameUI.h"
 #include "UObject/UnrealType.h"
 DEFINE_LOG_CATEGORY_STATIC(LogSaveCheck, Log, All);
 
 FTickerDelegate MakeViewCheck(FString OutputDir, bool bCustomKeys);
 FTickerDelegate MakeBuildCheck(FString Mode);
+FTickerDelegate MakeKeybindingCheck(FString Mode);
+FTickerDelegate MakeMenuCheck(FString OutputDir);
+FTickerDelegate MakePlanActionsCheck(FString Mode);
 
 class FSaveCheck : public IModuleInterface
 {
@@ -30,6 +35,15 @@ class FSaveCheck : public IModuleInterface
             if (!Save) continue;
             Save->SetAutoSaveEnabled(false);
             if (++Frames < 6) return true;
+            if (FParse::Param(FCommandLine::Get(), TEXT("SaveCheckOpenPauseMenu")))
+            {
+                auto* Player = Cast<AFGPlayerController>(W->GetFirstPlayerController());
+                auto* UI = Player ? Player->GetGameUI() : nullptr;
+                if (!UI || !Player->GetPawn()) return true;
+                UI->Native_HandlePauseGamePressed();
+                UE_LOG(LogSaveCheck, Display, TEXT("Requested stock pause menu. Open=%d"), UI->IsPauseMenuOpen());
+                return false;
+            }
             TSharedPtr<IPlugin> Plugin=IPluginManager::Get().FindPlugin(TEXT("ShadowArchitect"));
             UE_LOG(LogSaveCheck, Display, TEXT("version=%s enabled=%d"), Plugin ? *Plugin->GetDescriptor().VersionName : TEXT("missing"), Plugin && Plugin->IsEnabled());
             TArray<UFGBlueprintDescriptor*> Descs;
@@ -73,10 +87,36 @@ class FSaveCheck : public IModuleInterface
 public:
     virtual void StartupModule() override
     {
+        FString KeybindingScenario;
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckKeybindings="), KeybindingScenario))
+        {
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeKeybindingCheck(MoveTemp(KeybindingScenario)), 0.25f);
+            return;
+        }
+        FString MenuFrames;
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckPlanMenu="), MenuFrames))
+        {
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeMenuCheck(MoveTemp(MenuFrames)), 0.25f);
+            return;
+        }
+        FString ActionMode;
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckPlanActions="), ActionMode))
+        {
+            if (ActionMode != TEXT("defaults") && ActionMode != TEXT("rebind") && ActionMode != TEXT("custom")
+                && ActionMode != TEXT("safety") && ActionMode != TEXT("ui"))
+            {
+                UE_LOG(LogSaveCheck, Error, TEXT("Unknown SaveCheckPlanActions scenario"));
+                FPlatformMisc::RequestExit(false);
+                return;
+            }
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakePlanActionsCheck(MoveTemp(ActionMode)), 0.25f);
+            return;
+        }
         FString BuildScenario;
         if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckBuild="), BuildScenario))
         {
             if (BuildScenario != TEXT("preview") && BuildScenario != TEXT("confirm") && BuildScenario != TEXT("confirm-replaced")
+                && BuildScenario != TEXT("menu-preview") && BuildScenario != TEXT("menu-confirm")
                 && !BuildScenario.StartsWith(TEXT("seed:SAQ_")) && !BuildScenario.StartsWith(TEXT("source:")))
             {
                 UE_LOG(LogSaveCheck, Error, TEXT("Unknown SaveCheckBuild scenario"));
@@ -93,7 +133,9 @@ public:
             Handle = FTSTicker::GetCoreTicker().AddTicker(MakeViewCheck(MoveTemp(ViewFrames), bCustomKeys), 0.35f);
             return;
         }
-        if(FParse::Param(FCommandLine::Get(),TEXT("SaveCheckRun"))) Handle=FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateRaw(this,&FSaveCheck::Tick),0.6f);
+        if (FParse::Param(FCommandLine::Get(), TEXT("SaveCheckRun"))
+            || FParse::Param(FCommandLine::Get(), TEXT("SaveCheckOpenPauseMenu")))
+            Handle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateRaw(this, &FSaveCheck::Tick), 0.6f);
     }
     virtual void ShutdownModule() override { FTSTicker::GetCoreTicker().RemoveTicker(Handle); }
 };

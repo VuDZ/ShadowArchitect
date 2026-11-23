@@ -9,6 +9,7 @@
   "GameVersion": "520140",
   "IsExperimentalVersion": true,
   "CanContainContent": true,
+  "BuiltInInitialFeatureState": "Active",
   "Modules": [
     { "Name": "ShadowArchitect", "Type": "Runtime", "LoadingPhase": "Default", "PlatformAllowList": ["Win64"] }
   ],

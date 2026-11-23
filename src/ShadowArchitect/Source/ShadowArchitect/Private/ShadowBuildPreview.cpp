@@ -18,8 +18,13 @@ AFGBlueprintHologram* CurrentBlueprintPreview(const AFGBuildGun& Gun)
 
 void AShadowPlanSubsystem::OpenSelectedBuildPreview()
 {
-    const auto* Plan = Plans.FindByPredicate([this](const auto& Placement) { return Placement.Id == Selected; });
-    if (!Plan || !Views.FindRef(Selected).IsValid())
+    OpenPlanBuildPreview(Selected);
+}
+
+void AShadowPlanSubsystem::OpenPlanBuildPreview(const FGuid& Id)
+{
+    const auto* Plan = Plans.FindByPredicate([&Id](const auto& Placement) { return Placement.Id == Id; });
+    if (!Plan || !Views.FindRef(Id).IsValid())
     {
         Notify(TEXT("Select a plan first."));
         return;

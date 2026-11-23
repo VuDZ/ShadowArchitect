@@ -7,7 +7,7 @@ public class ShadowArchitect : ModuleRules
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
         CppStandard = CppStandardVersion.Cpp20;
         PrivateDependencyModuleNames.AddRange(new[] {
-            "Core", "CoreUObject", "Engine", "InputCore", "Slate",
+            "Core", "CoreUObject", "Engine", "EnhancedInput", "InputCore", "Slate", "SlateCore",
             "FactoryGame", "SML", "DummyHeaders"
         });
     }

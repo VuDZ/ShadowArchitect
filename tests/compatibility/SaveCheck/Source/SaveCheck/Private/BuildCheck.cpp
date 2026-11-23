@@ -1,4 +1,5 @@
 #include "Buildables/FGBuildable.h"
+#include "Camera/CameraActor.h"
 #include "Components/CapsuleComponent.h"
 #include "Containers/Ticker.h"
 #include "Engine/Engine.h"
@@ -27,6 +28,8 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogSaveCheckBuild, Log, All);
 
+bool ClickPlanMenuButton(FStringView Label);
+
 namespace
 {
 struct FPlanPose
@@ -36,6 +39,7 @@ struct FPlanPose
     FTransform Anchor;
     TArray<FTransform> Parts;
     FString SourceDigest;
+    FVector AimPoint = FVector::ZeroVector;
 };
 
 FPlanPose ReadPlan(UWorld& World, int32 RecordIndex = INDEX_NONE)
@@ -56,6 +60,8 @@ FPlanPose ReadPlan(UWorld& World, int32 RecordIndex = INDEX_NONE)
     const auto* Parts = FindFProperty<FArrayProperty>(RecordType->Struct, TEXT("Parts"));
     const auto* PartType = CastField<FStructProperty>(Parts ? Parts->Inner : nullptr);
     const auto* InPlan = PartType ? FindFProperty<FStructProperty>(PartType->Struct, TEXT("InPlan")) : nullptr;
+    const auto* BoundsCenter = PartType ? FindFProperty<FStructProperty>(PartType->Struct, TEXT("BoundsCenter")) : nullptr;
+    const auto* BoundsSize = PartType ? FindFProperty<FStructProperty>(PartType->Struct, TEXT("BoundsSize")) : nullptr;
     if (!Id || !Transform || !InPlan) return Result;
     const void* Record = Records.GetRawPtr(RecordIndex == INDEX_NONE ? Records.Num() - 1 : RecordIndex);
     Result.Id = *Id->ContainerPtrToValuePtr<FGuid>(Record);
@@ -63,8 +69,23 @@ FPlanPose ReadPlan(UWorld& World, int32 RecordIndex = INDEX_NONE)
     if (const auto* Digest = FindFProperty<FStrProperty>(RecordType->Struct, TEXT("BlueprintSourceProof")))
         Result.SourceDigest = Digest->GetPropertyValue_InContainer(Record);
     FScriptArrayHelper PartArray(Parts, Parts->ContainerPtrToValuePtr<void>(Record));
+    double LargestPart = 0;
     for (int32 Index = 0; Index < PartArray.Num(); ++Index)
-        Result.Parts.Add(*InPlan->ContainerPtrToValuePtr<FTransform>(PartArray.GetRawPtr(Index)));
+    {
+        const auto* Part = PartArray.GetRawPtr(Index);
+        const FTransform& Pose = Result.Parts.Add_GetRef(*InPlan->ContainerPtrToValuePtr<FTransform>(Part));
+        if (BoundsCenter && BoundsSize)
+        {
+            const FVector Size = *BoundsSize->ContainerPtrToValuePtr<FVector>(Part);
+            const double Volume = Size.X * Size.Y * Size.Z;
+            if (Volume > LargestPart)
+            {
+                LargestPart = Volume;
+                Result.AimPoint = Result.Anchor.TransformPosition(Pose.TransformPosition(
+                    *BoundsCenter->ContainerPtrToValuePtr<FVector>(Part)));
+            }
+        }
+    }
     return Result;
 }
 
@@ -249,7 +270,7 @@ struct FSourceProbe
 
 struct FBuildProbe
 {
-    enum class EStep { Ready, Native, Capture, Open, Aligned, Confirm, Result, Use };
+    enum class EStep { Ready, PrepareMenuFixture, Native, Capture, Open, Aligned, Confirm, Result, Use };
     enum class ECase { Preview, Shortage, Success, Occupied, SourceChanged };
 
     EStep Step = EStep::Ready;
@@ -259,7 +280,9 @@ struct FBuildProbe
     int32 PreviewPass = 0;
     int32 BeforeProjections = 0;
     FPlanPose Plan;
+    FPlanPose UnrelatedPlan;
     FBuildings Before;
+    TSet<const AFGBlueprintProxy*> ExistingBlueprints;
     FString Source;
     FString SeedSlot;
     TOptional<FSourceProbe> SourceProbe;
@@ -272,6 +295,8 @@ struct FBuildProbe
     int32 SiteAttempt = 0;
     TWeakObjectPtr<AFGItemPickup_Spawnable> Pickup;
     int32 PickupStock = 0;
+    bool bViaMenu = false;
+    TWeakObjectPtr<ACameraActor> MenuCamera;
 
     void Next(EStep Value) { Step = Value; Age = 0; }
 
@@ -451,6 +476,44 @@ struct FBuildProbe
         return !bCanBuild && !bUnaffordable && !Reasons.Contains(UFGCDInvalidAimLocation::StaticClass());
     }
 
+    bool CheckConstructedPositions(UWorld& World) const
+    {
+        TArray<FTransform> Remaining = Plan.Parts;
+        auto Match = [&](const FTransform& Actual)
+        {
+            const int32 Index = Remaining.IndexOfByPredicate([&](const FTransform& Part)
+            {
+                return Actual.GetLocation().Equals((Part * Plan.Anchor).GetLocation(), 1.0);
+            });
+            if (Index == INDEX_NONE)
+            {
+                UE_LOG(LogSaveCheckBuild, Error, TEXT("menu_target=%s unexpected_building_at=%s"),
+                    *Plan.Id.ToString(), *Actual.GetLocation().ToString());
+                return false;
+            }
+            Remaining.RemoveAtSwap(Index);
+            return true;
+        };
+
+        const auto* Lightweights = AFGLightweightBuildableSubsystem::Get(&World);
+        for (TActorIterator<AFGBlueprintProxy> It(&World); It; ++It)
+        {
+            if (ExistingBlueprints.Contains(*It)) continue;
+            for (const auto* Building : It->GetBuildables())
+                if (!IsValid(Building) || !Match(Building->GetActorTransform())) return false;
+            for (const auto& Entry : It->GetLightweightClassAndIndices())
+            {
+                const auto* Instances = Lightweights
+                    ? Lightweights->GetAllLightweightBuildableInstances().Find(Entry.BuildableClass) : nullptr;
+                for (int32 Index : Entry.Indices)
+                    if (!Instances || !Instances->IsValidIndex(Index) || !Match((*Instances)[Index].Transform)) return false;
+            }
+        }
+        UE_LOG(LogSaveCheckBuild, Display, TEXT("menu_target=%s matched_real_positions=%d/%d anchor_cm=%s"),
+            *Plan.Id.ToString(), Plan.Parts.Num() - Remaining.Num(), Plan.Parts.Num(), *Plan.Anchor.GetLocation().ToString());
+        return Remaining.IsEmpty();
+    }
+
     bool CheckResult(UWorld& World, UFGInventoryComponent& Inventory) const
     {
         const bool bSuccess = Scenario == ECase::Success;
@@ -460,6 +523,15 @@ struct FBuildProbe
             && After.Count - Before.Count == (bSuccess ? Plan.Parts.Num() : 0)
             && After.Blueprints - Before.Blueprints == (bSuccess ? 1 : 0)
             && After.BlueprintParts - Before.BlueprintParts == (bSuccess ? Plan.Parts.Num() : 0);
+        if (bViaMenu)
+        {
+            const FPlanPose Other = ReadPlan(World, 0);
+            const bool bUnchanged = Other.Id == UnrelatedPlan.Id && Other.Anchor.Equals(UnrelatedPlan.Anchor, 0.01);
+            UE_LOG(LogSaveCheckBuild, Display, TEXT("menu_target=%s other=%s other_unchanged=%d"),
+                *Plan.Id.ToString(), *Other.Id.ToString(), bUnchanged);
+            bGood &= bUnchanged && AfterPlan.Anchor.Equals(Plan.Anchor, 0.01);
+            if (bSuccess) bGood &= CheckConstructedPositions(World);
+        }
         UE_LOG(LogSaveCheckBuild, Display, TEXT("case=%s id=%s buildings=%d->%d proxies=%d->%d blueprint_parts=%d->%d plans=%d->%d"),
             CaseName(), *Plan.Id.ToString(), Before.Count, After.Count, Before.Blueprints, After.Blueprints,
             Before.BlueprintParts, After.BlueprintParts, Plan.Count, AfterPlan.Count);
@@ -504,6 +576,12 @@ struct FBuildProbe
             if (Age < 12) break;
             const auto Plugin = IPluginManager::Get().FindPlugin(TEXT("ShadowArchitect"));
             Plan = ReadPlan(World);
+            UnrelatedPlan = ReadPlan(World, 0);
+            if (bViaMenu && Plan.Count == 2)
+            {
+                Next(EStep::PrepareMenuFixture);
+                break;
+            }
             TArray<UFGBlueprintDescriptor*> Blueprints;
             AFGBlueprintSubsystem::GetBlueprintDescriptors(Blueprints, &World);
             if (!Plugin || !Plugin->IsEnabled() || !Plan.Id.IsValid() || Blueprints.Num() != 1
@@ -517,6 +595,21 @@ struct FBuildProbe
             Next(EStep::Native);
             break;
         }
+        case EStep::PrepareMenuFixture:
+            if (Age <= 6)
+            {
+                // Remove the second fixture plan before capturing the menu's build target.
+                PlanChord(Player, Age <= 4 ? EKeys::J : EKeys::K, Age % 2 ? IE_Pressed : IE_Released);
+            }
+            else
+            {
+                const FPlanPose Remaining = ReadPlan(World);
+                if (Remaining.Count != 1 || Remaining.Id != UnrelatedPlan.Id
+                    || !Remaining.Anchor.Equals(UnrelatedPlan.Anchor, 0.01))
+                    return Finish(false, TEXT("expected only fixture plan A before capture"));
+                Next(EStep::Ready);
+            }
+            break;
         case EStep::Native:
         {
             Player.SetControlRotation((Aim - Character.GetPawnViewLocation()).Rotation());
@@ -618,9 +711,35 @@ struct FBuildProbe
                         Stock.Add(Item.Key, Inventory.GetNumItems(Item.Key));
                         CentralStock.Add(Item.Key, DepotStock(Inventory, Item.Key));
                     }
-                PlanChord(Player, EKeys::F8, IE_Pressed);
+                if (bViaMenu)
+                {
+                    ExistingBlueprints.Reset();
+                    for (TActorIterator<AFGBlueprintProxy> It(&World); It; ++It) ExistingBlueprints.Add(*It);
+                    const FVector Eye = Plan.AimPoint + FVector(350, -500, 200);
+                    const FRotator Look = (Plan.AimPoint - Eye).Rotation();
+                    if (!MenuCamera.IsValid()) MenuCamera = World.SpawnActor<ACameraActor>(Eye, Look);
+                    if (!MenuCamera.IsValid()) return Finish(false, TEXT("menu camera fixture"));
+                    MenuCamera->SetActorLocationAndRotation(Eye, Look);
+                    Player.SetViewTarget(MenuCamera.Get());
+                }
+                else
+                    PlanChord(Player, EKeys::F8, IE_Pressed);
             }
-            if (Age == 2) { PlanChord(Player, EKeys::F8, IE_Released); Next(EStep::Aligned); }
+            if (bViaMenu)
+            {
+                if (Age == 2) Key(Player, EKeys::F6, IE_Pressed);
+                if (Age == 3) Key(Player, EKeys::F6, IE_Released);
+                if (Age > 3 && ClickPlanMenuButton(TEXT("Open build preview")))
+                {
+                    Player.SetViewTarget(&Character);
+                    Next(EStep::Aligned);
+                }
+            }
+            else if (Age == 2)
+            {
+                PlanChord(Player, EKeys::F8, IE_Released);
+                Next(EStep::Aligned);
+            }
             break;
         case EStep::Aligned:
             if (Age < 5 || !Preview || Preview->IsHidden() || Preview->IsDisabled()) break;
@@ -662,6 +781,7 @@ struct FBuildProbe
             if (Scenario == ECase::Preview)
             {
                 if (Build) return Finish(false, TEXT("Escape cancellation"));
+                if (bViaMenu) return Finish(true, TEXT("menu preview cancelled"));
                 if (++PreviewPass == 2) return Finish(true, TEXT("two previews opened and cancelled"));
                 Character.HotKeyBlueprint(Source);
                 Next(EStep::Native);
@@ -677,6 +797,7 @@ struct FBuildProbe
             else if (Scenario == ECase::Success)
             {
                 if (Build) return Finish(false, TEXT("successful plan preview still open"));
+                if (bViaMenu) return Finish(true, TEXT("menu construction"));
                 Scenario = ECase::Occupied;
             }
             else
@@ -731,8 +852,9 @@ struct FBuildProbe
 FTickerDelegate MakeBuildCheck(FString Mode)
 {
     FBuildProbe Probe;
+    Probe.bViaMenu = Mode == TEXT("menu-confirm") || Mode == TEXT("menu-preview");
     if (Mode == TEXT("confirm-replaced")) Probe.Scenario = FBuildProbe::ECase::SourceChanged;
-    else if (Mode != TEXT("confirm")) Probe.Scenario = FBuildProbe::ECase::Preview;
+    else if (Mode != TEXT("confirm") && Mode != TEXT("menu-confirm")) Probe.Scenario = FBuildProbe::ECase::Preview;
     if (Mode.RemoveFromStart(TEXT("seed:")))
         Probe.SeedSlot = MoveTemp(Mode);
     else if (Mode.RemoveFromStart(TEXT("source:")))
