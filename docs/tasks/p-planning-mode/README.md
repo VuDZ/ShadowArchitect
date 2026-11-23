@@ -5,7 +5,7 @@
 | Задача | От чего зависит |
 |---|---|
 | [P01. Проверить перехват подтверждения строительства](01-check-build-interception.md) | — |
-| [P02. Ввести режим планирования и индикатор](02-toggle-planning-mode.md) | [P01](01-check-build-interception.md), при подтверждённом перехвате, и [K01](../k-controls-and-menu/01-rebind-plan-placement.md) |
+| [P02. Ввести режим планирования и индикатор](02-toggle-planning-mode.md) | [P01](01-check-build-interception.md), при подтверждённом перехвате, и [K01](../archive/k-controls-and-menu/01-rebind-plan-placement.md) |
 | [P03. Размещать чертёж обычным кликом в режиме планирования](03-place-blueprint-holograms.md) | [P02](02-toggle-planning-mode.md) |
 | [P04. Захватить одиночный фундамент и станок](04-place-building-holograms.md) | [P02](02-toggle-planning-mode.md) |
 | [P05. Обработать двухшаговое размещение ленты](05-plan-conveyor-belts.md) | [P04](04-place-building-holograms.md) |

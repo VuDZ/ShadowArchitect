@@ -10,7 +10,7 @@
 
 ## С чего начать
 
-У каждой детали есть `BoundsCenter`, `BoundsSize` и `InPlan`. Размеры записаны в сантиметрах как полная длина по осям. Отдельное размещение задаёт `Plan.Transform`. [Данные снимка](../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowPlan.h) · [Рендер проекции](../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowProjection.cpp) · [Захват геометрии](../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowCapture.cpp)
+У каждой детали есть `BoundsCenter`, `BoundsSize` и `InPlan`. Размеры записаны в сантиметрах как полная длина по осям. Отдельное размещение задаёт `Plan.Transform`. [Данные снимка](../../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowPlan.h) · [Рендер проекции](../../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowProjection.cpp) · [Захват геометрии](../../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowCapture.cpp)
 
 ## Работа
 
@@ -38,10 +38,10 @@ plan=1 turned_90=1 local_size_cm=(X=2013.452 Y=1688.751 Z=914.822) unchanged=1
 subsystems=1 restored=2 views=2 visible=2 geometry_pass=1
 ```
 
-![Габариты восстановленных планов после загрузки с пустой библиотекой Blueprint](../../evidence/V01-footprint.png)
+![Габариты восстановленных планов после загрузки с пустой библиотекой Blueprint](../../../evidence/V01-footprint.png)
 
 ## Что передать проверяющему
 
 Приложите ожидаемые и полученные размеры в см и один игровой кадр. Сохраняемые положения деталей остаются источником геометрии.
 
-[Индекс задач и условия игрового прогона](../../work-plan.md)
+[Индекс задач и условия игрового прогона](../../../work-plan.md)

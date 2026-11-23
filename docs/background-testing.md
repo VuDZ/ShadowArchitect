@@ -91,7 +91,7 @@ ViewChord=(Key=F11,bAlt=True)
 
 ## B02–B04. Строительство по плану
 
-Соберите текущие версии Shadow Architect и SaveCheck. Используйте отдельную установку клиента, слот V03 `SAQ_BASE_01` с двумя сохранёнными планами рядом с фундаментом и одиночный `QA_A` из [опыта B01](tasks/b-build-from-plan/01-identify-source-blueprint.md). В примере фонового запуска замените `-SaveCheckRun` одним из параметров ниже. SaveCheck отключает автосохранение и завершает клиент после замеров. Ищите `LogSaveCheckBuild` и `LogShadowArchitect` в журнале.
+Соберите текущие версии Shadow Architect и SaveCheck. Используйте отдельную установку клиента, слот V03 `SAQ_BASE_01` с двумя сохранёнными планами рядом с фундаментом и одиночный `QA_A` из [опыта B01](tasks/archive/b-build-from-plan/01-identify-source-blueprint.md). В примере фонового запуска замените `-SaveCheckRun` одним из параметров ниже. SaveCheck отключает автосохранение и завершает клиент после замеров. Ищите `LogSaveCheckBuild` и `LogShadowArchitect` в журнале.
 
 - `-SaveCheckBuild=seed:SAQ_B02_SOURCE_01` нажимает F7, записывает одну новую запись и сохраняет её в свободный тестовый слот. В журнале должны совпасть GUID и отпечаток захвата. Для следующих запусков той же записи загрузите созданный слот.
 - `-SaveCheckBuild=source:found:QA_A` и `source:found:QA_A_renamed` проверяют имя открывшегося предпросмотра. Для `source:missing`, `source:replaced` и `source:duplicate` сверяйте причину из `LogShadowArchitect`, отсутствие предпросмотра, прежний GUID и запасы. Сценарий `source:legacy` использует первый план исходного слота без отпечатка.
@@ -118,7 +118,7 @@ ViewChord=(Key=F11,bAlt=True)
 
 ## K03. Проверка переноса Game.ini
 
-Подготовьте отдельный профиль с фрагментом [из карточки K03](tasks/k-controls-and-menu/03-import-legacy-keybindings.md). Запустите `-SaveCheckKeybindings=legacy`, затем в том же профиле пройдите `customize`, два прогона `custom`, `unbind-place`, `unbound-place`, `reset` и `reset-check`. Значениями для `-SaveCheckKeybindings` служат названия этих сценариев. Оставьте старый блок на диске. В отдельных профилях проверьте `clean` без блока и `mixed` с неверной клавишей размещения и `SelectKey=F5`. Для проверки действий Alt+F8 и Ctrl+Shift+F5 из этого блока используйте в новом профиле `-SaveCheckViews=<каталог кадров> -SaveCheckLegacyKeys`.
+Подготовьте отдельный профиль с фрагментом [из карточки K03](tasks/archive/k-controls-and-menu/03-import-legacy-keybindings.md). Запустите `-SaveCheckKeybindings=legacy`, затем в том же профиле пройдите `customize`, два прогона `custom`, `unbind-place`, `unbound-place`, `reset` и `reset-check`. Значениями для `-SaveCheckKeybindings` служат названия этих сценариев. Оставьте старый блок на диске. В отдельных профилях проверьте `clean` без блока и `mixed` с неверной клавишей размещения и `SelectKey=F5`. Для проверки действий Alt+F8 и Ctrl+Shift+F5 из этого блока используйте в новом профиле `-SaveCheckViews=<каталог кадров> -SaveCheckLegacyKeys`.
 
 ## K04. Проверка подсказки
 

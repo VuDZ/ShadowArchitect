@@ -1,6 +1,6 @@
 # P02. Ввести режим планирования и индикатор
 
-**Зависимости** — [P01](01-check-build-interception.md), при подтверждённом перехвате, и [K01](../k-controls-and-menu/01-rebind-plan-placement.md).
+**Зависимости** — [P01](01-check-build-interception.md), при подтверждённом перехвате, и [K01](../archive/k-controls-and-menu/01-rebind-plan-placement.md).
 
 ## Цель
 

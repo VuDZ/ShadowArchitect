@@ -2,9 +2,9 @@
 
 Планирование фабрики в одиночной Satisfactory. Игрок выставляет пользовательский Blueprint штатным Build Gun и отдельной клавишей фиксирует его проекцию. Исходники рассчитаны на Windows Steam, Satisfactory **CL 520140**, SML **3.12.1** и UE **5.6.1-CSS**. [Совместимость в релизе SML](https://github.com/satisfactorymodding/SatisfactoryModLoader/releases/tag/v3.12.1)
 
-**Локальная сборка 0.1.2 с управлением и меню плана для Steam Windows.** Архив `dist/ShadowArchitect-0.1.2-K-Steam-Windows.zip` устанавливается в `<игра>/FactoryGame/Mods/GameFeatures/ShadowArchitect/` рядом с SML 3.12.1. [Карточки и результаты игровых проверок](docs/tasks/k-controls-and-menu/)
+**Локальная сборка 0.1.2 с управлением и меню плана для Steam Windows.** Архив `dist/ShadowArchitect-0.1.2-K-Steam-Windows.zip` устанавливается в `<игра>/FactoryGame/Mods/GameFeatures/ShadowArchitect/` рядом с SML 3.12.1. [Карточки и результаты игровых проверок](docs/tasks/archive/k-controls-and-menu/)
 
-**Предыдущая локальная сборка 0.1.2 для Steam Windows.** Архив `dist/ShadowArchitect-0.1.2-Steam-Windows.zip` проверен с Ghost, Wireframe, Footprint и назначением клавиш через `Game.ini`. Эта сборка ставится в `<игра>/FactoryGame/Mods/ShadowArchitect/` рядом с SML 3.12.1. [Проверка V03](docs/tasks/v-display-modes/03-switch-display-mode.md)
+**Предыдущая локальная сборка 0.1.2 для Steam Windows.** Архив `dist/ShadowArchitect-0.1.2-Steam-Windows.zip` проверен с Ghost, Wireframe, Footprint и назначением клавиш через `Game.ini`. Эта сборка ставится в `<игра>/FactoryGame/Mods/ShadowArchitect/` рядом с SML 3.12.1. [Проверка V03](docs/tasks/archive/v-display-modes/03-switch-display-mode.md)
 
 Офлайн прочитаны 25 игровых Blueprint и воспроизведён чертёж из 16 фундаментов. [Исходники](src/ShadowArchitect/) · [Результаты исследования](docs/feasibility.md) · [Архитектура](docs/architecture.md)
 

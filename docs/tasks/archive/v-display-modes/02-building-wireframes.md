@@ -10,7 +10,7 @@
 
 ## С чего начать
 
-`AShadowProjection::Build` сегодня применяет один материал ко всем слотам меша. Для утраченного меша уже предусмотрен габаритный proxy. Wireframe должен читаться на сложном станке в упакованном клиенте. [Рендер проекции](../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowProjection.cpp) · [Захват геометрии](../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowCapture.cpp) · [Данные снимка](../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowPlan.h)
+`AShadowProjection::Build` сегодня применяет один материал ко всем слотам меша. Для утраченного меша уже предусмотрен габаритный proxy. Wireframe должен читаться на сложном станке в упакованном клиенте. [Рендер проекции](../../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowProjection.cpp) · [Захват геометрии](../../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowCapture.cpp) · [Данные снимка](../../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowPlan.h)
 
 ## Работа
 
@@ -39,12 +39,12 @@ expected_material=M_ShadowBoxEdges match=1 components=1 lod0_triangles=48
 pass=1
 ```
 
-![Два частично перекрывающихся станка в Wireframe](../../evidence/V02-wireframe.png)
+![Два частично перекрывающихся станка в Wireframe](../../../evidence/V02-wireframe.png)
 
-![Контур габарита переднего станка и контуры мешей заднего](../../evidence/V02-proxy.png)
+![Контур габарита переднего станка и контуры мешей заднего](../../../evidence/V02-proxy.png)
 
 ## Что передать проверяющему
 
 Приложите кадры обычного меша и proxy, укажите сборку. Только редакторный вид Wireframe не подтверждает результат в игре.
 
-[Индекс задач и условия игрового прогона](../../work-plan.md)
+[Индекс задач и условия игрового прогона](../../../work-plan.md)

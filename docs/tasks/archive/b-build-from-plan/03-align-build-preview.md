@@ -1,6 +1,6 @@
 # B03. Открыть строительный предпросмотр на месте плана
 
-**Зависимости** — [B02](02-validate-source-blueprint.md), [E02](../e-plan-editing/02-select-plan-under-crosshair.md).
+**Зависимости** — [B02](02-validate-source-blueprint.md), [E02](../../e-plan-editing/02-select-plan-under-crosshair.md).
 
 ## Цель
 
@@ -8,7 +8,7 @@
 
 ## С чего начать
 
-Выбранный GUID даёт `Plan.Transform`, B02 возвращает проверенный источник. `ActivePreview` читает уже существующий preview; для открытия и позиционирования найдите штатный путь Build Gun в SDK. [Управление планами](../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowPlan.cpp) · [Захват геометрии](../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowCapture.cpp) · [Данные снимка](../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowPlan.h)
+Выбранный GUID даёт `Plan.Transform`, B02 возвращает проверенный источник. `ActivePreview` читает уже существующий preview; для открытия и позиционирования найдите штатный путь Build Gun в SDK. [Управление планами](../../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowPlan.cpp) · [Захват геометрии](../../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowCapture.cpp) · [Данные снимка](../../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowPlan.h)
 
 ## Работа
 
@@ -24,7 +24,7 @@
 
 **B03**, 23 ноября 2026. Steam Shipping CL `520140`, SML `3.12.1`, Shadow Architect `0.1.2`. Сборка из рабочей копии B02–B03 поверх `644fd91`, SHA-256 DLL `E1E1705EF2C07FECCB7AE9FF1B9C8E3B9742E6EF3E7B174F6DA6E162A3A7A4D5`. Входной слот `SAQ_BASE_01`, сеанс `SAQBuild`, выходной слот не записывался. В отдельной библиотеке один `QA_A`, восемь деталей. Клиент загрузил также `InfiniteNudge`, `SmartFoundations` и `InfiniteZoop`.
 
-`-SaveCheckBuild=preview` снимал исходный Blueprint через F7. Тестовый модуль подготовил вторую позу с подъёмом на 250 см и поворотом на 90°. Новое размещение уже выбрано после F7. Для существующего плана доступен Ctrl+Shift+J. Выбор под прицелом остаётся в E02. Для каждой позы тест нажал Ctrl+Shift+F8, дождался нескольких обновлений Build Gun, сравнил позы и нажал Escape. [BuildCheck.cpp](../../../tests/compatibility/SaveCheck/Source/SaveCheck/Private/BuildCheck.cpp)
+`-SaveCheckBuild=preview` снимал исходный Blueprint через F7. Тестовый модуль подготовил вторую позу с подъёмом на 250 см и поворотом на 90°. Новое размещение уже выбрано после F7. Для существующего плана доступен Ctrl+Shift+J. Выбор под прицелом остаётся в E02. Для каждой позы тест нажал Ctrl+Shift+F8, дождался нескольких обновлений Build Gun, сравнил позы и нажал Escape. [BuildCheck.cpp](../../../../tests/compatibility/SaveCheck/Source/SaveCheck/Private/BuildCheck.cpp)
 
 SaveCheck сверил якорь голограммы и мировые трансформации всех восьми визуальных корней с сохранённым планом. Две удалённые детали в каждой позе приведены ниже. В строках указаны совпавшие ожидаемые и фактические координаты в сантиметрах и угол поворота вокруг Z.
 
@@ -63,4 +63,4 @@ pass=1 two previews opened and cancelled
 
 Приложите сравнение поз после обновления preview и замер до/после отмены. Само подтверждение постройки относится к B04.
 
-[Индекс задач и условия игрового прогона](../../work-plan.md)
+[Индекс задач и условия игрового прогона](../../../work-plan.md)

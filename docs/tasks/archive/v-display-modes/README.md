@@ -8,4 +8,4 @@
 | [V02. Реализовать контуры отдельных зданий](02-building-wireframes.md) | — |
 | [V03. Переключать три способа отображения](03-switch-display-mode.md) | [V01](01-plan-footprint.md), [V02](02-building-wireframes.md) |
 
-[Все разделы](../README.md) · [План и условия проверки](../../work-plan.md)
+[Архив задач](../README.md) · [План и условия проверки](../../../work-plan.md)

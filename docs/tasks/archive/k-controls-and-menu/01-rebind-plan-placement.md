@@ -4,7 +4,7 @@
 
 ## С чего начать
 
-В `AShadowPlanSubsystem::BindControls` найдите связь между F7 и `Place`. Для Satisfactory 1.2 / SML 3.12 используйте переназначаемый Input Action, дочерний контекст `FGChildInputMappingContext` и его регистрацию через Game Feature Data. Сверьте с ExampleMod из установленного SDK. [Текущий обработчик](../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowPlan.cpp) · [Изменения Enhanced Input в SML 3.12](https://docs.ficsit.app/satisfactory-modding/latest/Development/UpdatingFromSml311.html#_enhanced_input)
+В `AShadowPlanSubsystem::BindControls` найдите связь между F7 и `Place`. Для Satisfactory 1.2 / SML 3.12 используйте переназначаемый Input Action, дочерний контекст `FGChildInputMappingContext` и его регистрацию через Game Feature Data. Сверьте с ExampleMod из установленного SDK. [Текущий обработчик](../../../../src/ShadowArchitect/Source/ShadowArchitect/Private/ShadowPlan.cpp) · [Изменения Enhanced Input в SML 3.12](https://docs.ficsit.app/satisfactory-modding/latest/Development/UpdatingFromSml311.html#_enhanced_input)
 
 ## Работа
 
@@ -24,7 +24,7 @@
 23 ноября 2026 года. `f8d5818` с изменениями K, Satisfactory Steam CL `520140` (ветка сборки `rel-main-1.2.6`), SML `3.12.1`, Shadow Architect `0.1.2`. SHA-256 установленной DLL и DLL из ZIP `d7655aa1399261a6335abf947a30c7d161b265e0f07b496f94593471255c5599`. Входной слот `SAQ_BASE_01`. Выходной слот не записывался.
 
 - Чистый профиль, активный предпросмотр. F7 увеличила число планов с 2 до 3. Новый GUID `F4CC61414F511220D1AA3996D5883C8F`.
-- В отдельном слоте `SAQ_K_UI_01` открыли **Options → Keybindings → Shadow Architect**. В группе видны семь действий. После выбора строки **Place plan** и ввода Ctrl+Q значение сразу сменилось с `F7` на `Left Ctrl + Q`. Назначение записалось в профиль, выходной слот не создавался. [Кадр назначения](../../evidence/K01-placement-ctrl-q.jpg)
+- В отдельном слоте `SAQ_K_UI_01` открыли **Options → Keybindings → Shadow Architect**. В группе видны семь действий. После выбора строки **Place plan** и ввода Ctrl+Q значение сразу сменилось с `F7` на `Left Ctrl + Q`. Назначение записалось в профиль, выходной слот не создавался. [Кадр назначения](../../../evidence/K01-placement-ctrl-q.jpg)
 - При автоматическом повторении переназначения через API управления Q с убранным Build Gun открыла меню строительства, осталось 2 плана. С активным предпросмотром F7 оставила 2 плана, Ctrl+Q добавила один план `29E2B4DB4422841C7358D1B0F1D52C77`. Меню строительства оставалось закрытым.
 - После перезапуска того же профиля наблюдалась та же последовательность. Q открыла меню, F7 оставила 2 плана. Ctrl+Q добавила GUID `151D728F4E2E0023E004B0A3DFBAE073`, стало 3 плана.
 - В поле чата введена `q` и нажата Ctrl+Q с активным предпросмотром. Осталось 3 плана. С убранным Build Gun команда `/shadowplace` ответила `Select a blueprint with the Build Gun first.`, осталось 3 плана.
