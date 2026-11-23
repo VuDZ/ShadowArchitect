@@ -19,6 +19,8 @@ FTickerDelegate MakeBuildCheck(FString Mode);
 FTickerDelegate MakeKeybindingCheck(FString Mode);
 FTickerDelegate MakeMenuCheck(FString OutputDir);
 FTickerDelegate MakePlanActionsCheck(FString Mode);
+FTickerDelegate MakeAlignmentCheck(FString Frames, bool bGuide);
+FTickerDelegate MakeRoofStackCheck(FString Directory);
 
 class FSaveCheck : public IModuleInterface
 {
@@ -87,6 +89,19 @@ class FSaveCheck : public IModuleInterface
 public:
     virtual void StartupModule() override
     {
+        FString RoofStackFrames;
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckRoofStack="), RoofStackFrames))
+        {
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeRoofStackCheck(MoveTemp(RoofStackFrames)), 0.12f);
+            return;
+        }
+        FString AlignmentFrames;
+        const bool bAlignmentGuide = FParse::Value(FCommandLine::Get(), TEXT("SaveCheckAlignmentGuide="), AlignmentFrames);
+        if (bAlignmentGuide || FParse::Value(FCommandLine::Get(), TEXT("SaveCheckAlignment="), AlignmentFrames))
+        {
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeAlignmentCheck(MoveTemp(AlignmentFrames), bAlignmentGuide), 0.12f);
+            return;
+        }
         FString KeybindingScenario;
         if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckKeybindings="), KeybindingScenario))
         {

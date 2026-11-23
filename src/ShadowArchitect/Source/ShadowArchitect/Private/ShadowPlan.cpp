@@ -89,13 +89,18 @@ void AShadowPlanSubsystem::BeginPlay()
     BindControls();
 }
 
-AFGHologram* AShadowPlanSubsystem::ActivePreview() const
+AFGHologram* AShadowPlanSubsystem::CurrentPreview() const
 {
     APlayerController* PC = GetWorld()->GetFirstPlayerController();
     AFGCharacterPlayer* Player = PC ? Cast<AFGCharacterPlayer>(PC->GetPawn()) : nullptr;
     AFGBuildGun* Gun = IsValid(Player) ? Player->GetBuildGun() : nullptr;
     auto* State = IsValid(Gun) && Gun->IsEquipped() ? Cast<UFGBuildGunStateBuild>(Gun->GetCurrentState()) : nullptr;
-    AFGHologram* Preview = IsValid(State) ? State->GetHologram() : nullptr;
+    return IsValid(State) ? State->GetHologram() : nullptr;
+}
+
+AFGHologram* AShadowPlanSubsystem::ActivePreview() const
+{
+    AFGHologram* Preview = CurrentPreview();
     return IsValid(Preview) && !Preview->IsHidden() && !Preview->IsDisabled() ? Preview : nullptr;
 }
 
@@ -162,6 +167,11 @@ bool AShadowPlanSubsystem::TryPlace(FString& Result)
     if (!Preview) { Result = TEXT("Select a blueprint with the Build Gun first."); return false; }
     FShadowPlacement Plan;
     if (!CaptureBlueprint(*Preview, Plan, Result)) return false;
+    return AddCapturedPlan(MoveTemp(Plan), Result);
+}
+
+bool AShadowPlanSubsystem::AddCapturedPlan(FShadowPlacement Plan, FString& Result)
+{
     if (!ShowPlan(Plan)) { Result = TEXT("Could not render the snapshot. Check the mesh/material and log."); return false; }
     Selected = Plan.Id;
     Result = FString::Printf(TEXT("Placed %s [%s], %d objects.%s"), *Plan.BlueprintId,
@@ -216,6 +226,7 @@ void AShadowPlanSubsystem::DeletePlan(const FGuid& Id)
 {
     const int32 Index = Plans.IndexOfByPredicate([&Id](const auto& P) { return P.Id == Id; });
     if (!Id.IsValid() || Index == INDEX_NONE) { Notify(TEXT("Select a plan first.")); return; }
+    if (AlignmentPlan == Id) ClearAlignmentGuide();
     if (auto View = Views.FindRef(Id); View.IsValid()) View->Destroy();
     Views.Remove(Id);
     Plans.RemoveAt(Index);
@@ -226,6 +237,7 @@ void AShadowPlanSubsystem::DeletePlan(const FGuid& Id)
 void AShadowPlanSubsystem::ToggleVisibility()
 {
     bVisible = !bVisible;
+    if (!bVisible) ClearAlignmentGuide();
     for (const auto& Entry : Views)
         if (Entry.Value.IsValid()) Entry.Value->SetActorHiddenInGame(!bVisible);
     Notify(bVisible ? TEXT("Plans visible.") : TEXT("Plans hidden."));
@@ -270,6 +282,7 @@ void AShadowPlanSubsystem::CycleView()
 void AShadowPlanSubsystem::ClearViews()
 {
     ClosePlanMenu();
+    ClearAlignmentGuide();
     for (const auto& Entry : Views)
         if (Entry.Value.IsValid()) Entry.Value->Destroy();
     Views.Reset();

@@ -6,6 +6,7 @@
 #include "FGPlayerController.h"
 #include "Framework/Application/IInputProcessor.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Hologram/FGBlueprintHologram.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Layout/SBorder.h"
@@ -25,6 +26,8 @@ enum class EPlanMenuAction
     ConfirmMove,
     Delete,
     BuildPreview,
+    PlaceOnRoof,
+    AlignmentGuide,
     Cancel
 };
 
@@ -122,6 +125,14 @@ void FShadowPlanMenu::Show()
         [ Button(LOCTEXT("Delete", "Delete"), EPlanMenuAction::Delete) ];
         Content->AddSlot().AutoHeight().Padding(0, 0, 0, 6)
         [ Button(LOCTEXT("BuildPreview", "Open build preview"), EPlanMenuAction::BuildPreview) ];
+        const auto* Owner = Plans.Get();
+        if (Owner && Owner->ViewMode != EShadowView::Footprint && Cast<AFGBlueprintHologram>(Owner->CurrentPreview()))
+            Content->AddSlot().AutoHeight().Padding(0, 0, 0, 6)
+            [ Button(LOCTEXT("PlaceOnRoof", "Place Blueprint on roof"), EPlanMenuAction::PlaceOnRoof) ];
+        Content->AddSlot().AutoHeight().Padding(0, 0, 0, 6)
+        [ Button(Owner && Owner->AlignmentPlan == Target
+            ? LOCTEXT("HideAlignmentGuide", "Hide alignment guide")
+            : LOCTEXT("ShowAlignmentGuide", "Show alignment guide"), EPlanMenuAction::AlignmentGuide) ];
     }
     Content->AddSlot().AutoHeight()[ CancelButton ];
 
@@ -221,6 +232,20 @@ FReply FShadowPlanMenu::Choose(EPlanMenuAction Action)
             Owner->ClosePlanMenu();
             Owner->OpenPlanBuildPreview(Target);
             break;
+        case EPlanMenuAction::PlaceOnRoof:
+        {
+            const FGuid Id = Target;
+            Owner->ClosePlanMenu();
+            Owner->PlaceBlueprintOnRoof(Id);
+            break;
+        }
+        case EPlanMenuAction::AlignmentGuide:
+        {
+            const FGuid Id = Target;
+            Owner->ClosePlanMenu();
+            Owner->ToggleAlignmentGuide(Id);
+            break;
+        }
         case EPlanMenuAction::Cancel:
             Cancel();
             break;
@@ -258,7 +283,8 @@ void AShadowPlanSubsystem::OpenPlanMenu()
 
     if (!PlanMenu)
     {
-        const FGuid Target = FindPlanUnderCrosshair();
+        FGuid Target = FindPlanUnderCrosshair();
+        if (!Target.IsValid()) Target = AlignmentPlan;
         if (!Target.IsValid())
         {
             Notify(TEXT("No visible plan under the crosshair."));

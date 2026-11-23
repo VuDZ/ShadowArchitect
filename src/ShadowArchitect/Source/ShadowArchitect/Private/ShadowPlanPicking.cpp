@@ -28,24 +28,40 @@ double FirstBoxSurface(const FBox& Bounds, const FVector& Start, const FVector& 
 }
 }
 
-FGuid AShadowPlanSubsystem::FindPlanUnderCrosshair() const
+int32 FindShadowPartOnRay(const FShadowPlacement& Plan, const FVector& Start, const FVector& Delta, double& Limit)
 {
-    const APlayerController* PC = GetWorld()->GetFirstPlayerController();
-    if (!bVisible || !IsValid(PC) || !PC->IsLocalController()) return {};
+    const FVector PlanStart = Plan.Transform.InverseTransformPosition(Start);
+    const FVector PlanDelta = Plan.Transform.InverseTransformVector(Delta);
+    int32 Target = INDEX_NONE;
+    for (int32 Index = 0; Index < Plan.Parts.Num(); ++Index)
+    {
+        const FShadowPart& Part = Plan.Parts[Index];
+        const FVector Extent = Part.BoundsSize * 0.5;
+        const double Distance = FirstBoxSurface(FBox(Part.BoundsCenter - Extent, Part.BoundsCenter + Extent),
+            Part.InPlan.InverseTransformPosition(PlanStart), Part.InPlan.InverseTransformVector(PlanDelta), Limit);
+        if (Distance < Limit)
+        {
+            Limit = Distance;
+            Target = Index;
+        }
+    }
+    return Target;
+}
 
-    FVector Start;
+double AShadowPlanSubsystem::TracePlanAim(const APlayerController& Player, double Range,
+    FVector& Start, FVector& Delta) const
+{
     FRotator Aim;
-    PC->GetPlayerViewPoint(Start, Aim);
-    constexpr double Range = 10000.0;
-    const FVector Delta = Aim.Vector() * Range;
-    FCollisionQueryParams Query(SCENE_QUERY_STAT(ShadowPlanPick), true, PC->GetPawn());
-    if (const APawn* Pawn = PC->GetPawn())
+    Player.GetPlayerViewPoint(Start, Aim);
+    Delta = Aim.Vector() * Range;
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(ShadowPlanPick), true, Player.GetPawn());
+    if (const APawn* Pawn = Player.GetPawn())
     {
         TArray<AActor*> Attached;
         Pawn->GetAttachedActors(Attached, true, true);
         Query.AddIgnoredActors(Attached);
     }
-    if (AFGHologram* Preview = ActivePreview())
+    if (AFGHologram* Preview = CurrentPreview(); IsValid(Preview))
     {
         Query.AddIgnoredActor(Preview);
         TArray<AActor*> Attached;
@@ -54,7 +70,16 @@ FGuid AShadowPlanSubsystem::FindPlanUnderCrosshair() const
     }
     FHitResult Hit;
     GetWorld()->LineTraceSingleByChannel(Hit, Start, Start + Delta, ECC_Visibility, Query);
-    double Best = Hit.bBlockingHit ? Hit.Time : 1.0;
+    return Hit.bBlockingHit ? Hit.Time : 1.0;
+}
+
+FGuid AShadowPlanSubsystem::FindPlanUnderCrosshair() const
+{
+    const APlayerController* PC = GetWorld()->GetFirstPlayerController();
+    if (!bVisible || !IsValid(PC) || !PC->IsLocalController()) return {};
+
+    FVector Start, Delta;
+    double Best = TracePlanAim(*PC, PlanPickRange, Start, Delta);
     FGuid Target;
     for (const FShadowPlacement& Plan : Plans)
     {
@@ -62,22 +87,15 @@ FGuid AShadowPlanSubsystem::FindPlanUnderCrosshair() const
         if (!View || View->IsHidden()) continue;
 
         // Keep the same ray parameter through both transforms to compare world distances.
-        const FVector PlanStart = Plan.Transform.InverseTransformPosition(Start);
-        const FVector PlanDelta = Plan.Transform.InverseTransformVector(Delta);
         double Distance = Best;
         if (ViewMode == EShadowView::Footprint)
         {
-            Distance = FirstBoxSurface(CalculateFootprint(Plan.Parts), PlanStart, PlanDelta, Distance);
+            Distance = FirstBoxSurface(CalculateFootprint(Plan.Parts), Plan.Transform.InverseTransformPosition(Start),
+                Plan.Transform.InverseTransformVector(Delta), Distance);
         }
         else
         {
-            for (const FShadowPart& Part : Plan.Parts)
-            {
-                const FVector Extent = Part.BoundsSize * 0.5;
-                Distance = FirstBoxSurface(FBox(Part.BoundsCenter - Extent, Part.BoundsCenter + Extent),
-                    Part.InPlan.InverseTransformPosition(PlanStart),
-                    Part.InPlan.InverseTransformVector(PlanDelta), Distance);
-            }
+            FindShadowPartOnRay(Plan, Start, Delta, Distance);
         }
         if (Distance < Best)
         {

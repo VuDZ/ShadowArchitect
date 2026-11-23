@@ -11,6 +11,7 @@
 
 class AFGBlueprintHologram;
 class AFGHologram;
+class FShadowAlignmentGuide;
 class FShadowPlanMenu;
 class IFileHandle;
 class UFGBuildGunStateBuild;
@@ -49,9 +50,20 @@ struct FShadowPlacement
     UPROPERTY(SaveGame) FString BlueprintSourceProof;
 };
 
-// Only the data above crosses the save boundary.
+// Alignment geometry belongs to the current viewport, outside the save data.
+USTRUCT()
+struct FShadowAlignmentSegment
+{
+    GENERATED_BODY()
+    UPROPERTY() FVector Start = FVector::ZeroVector;
+    UPROPERTY() FVector End = FVector::ZeroVector;
+    FLinearColor Color = FLinearColor::White;
+    float Thickness = 2.0f;
+};
+
 bool CaptureBlueprint(AFGBlueprintHologram& Preview, FShadowPlacement& Out, FString& Error);
 FBox CalculateFootprint(const TArray<FShadowPart>& Parts);
+int32 FindShadowPartOnRay(const FShadowPlacement& Plan, const FVector& Start, const FVector& Delta, double& Limit);
 
 enum class EShadowView : uint8
 {
@@ -100,6 +112,7 @@ private:
     friend class FShadowArchitectModule;
     friend class FShadowPlanMenu;
 
+    static constexpr double PlanPickRange = 10000.0;
     UPROPERTY(SaveGame) TArray<FShadowPlacement> Plans;
     UPROPERTY(SaveGame) bool bVisible = true;
     UPROPERTY(Transient) TObjectPtr<UStaticMesh> ProxyCube;
@@ -109,6 +122,10 @@ private:
     TMap<FGuid, TWeakObjectPtr<AShadowProjection>> Views;
     FGuid Selected;
     TSharedPtr<FShadowPlanMenu> PlanMenu;
+    TSharedPtr<FShadowAlignmentGuide> AlignmentGuide;
+    UPROPERTY(Transient) TArray<FShadowAlignmentSegment> AlignmentLines;
+    FGuid AlignmentPlan;
+    FTimerHandle AlignmentRefresh;
     TWeakObjectPtr<AFGBlueprintHologram> PlanBuildPreview;
     FGuid PlanBuildId;
     TWeakObjectPtr<UFGBuildGunStateBuild> ClosingBuildState;
@@ -124,8 +141,11 @@ private:
     bool ImportLegacyKeybindings(APlayerController& Player);
     FString KeybindingHint(APlayerController& Player, FName Mapping) const;
     void Notify(const FString& Text) const;
+    AFGHologram* CurrentPreview() const;
     AFGHologram* ActivePreview() const;
+    bool AddCapturedPlan(FShadowPlacement Plan, FString& Result);
     void Place();
+    void PlaceBlueprintOnRoof(const FGuid& Id);
     void SelectNext();
     void MoveSelected();
     bool TryMovePlan(const FGuid& Id);
@@ -133,7 +153,11 @@ private:
     void DeletePlan(const FGuid& Id);
     void ToggleVisibility();
     void CycleView();
+    double TracePlanAim(const APlayerController& Player, double Range, FVector& Start, FVector& Delta) const;
     FGuid FindPlanUnderCrosshair() const;
+    void ToggleAlignmentGuide(const FGuid& Id);
+    void RefreshAlignmentGuide();
+    void ClearAlignmentGuide();
     void OpenPlanMenu();
     void ClosePlanMenu();
     bool ConfirmPendingPlanMove();
