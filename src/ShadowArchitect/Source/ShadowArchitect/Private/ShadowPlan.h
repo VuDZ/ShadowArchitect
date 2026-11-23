@@ -55,7 +55,10 @@ public:
     AShadowProjection();
     bool Build(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material);
     bool BuildFootprint(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material);
+    bool BuildWireframe(const FShadowPlacement& Plan, UStaticMesh& Cube);
 private:
+    bool BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cube,
+        UMaterialInterface& MeshMaterial, UMaterialInterface& ProxyMaterial);
     void AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative);
 };
 

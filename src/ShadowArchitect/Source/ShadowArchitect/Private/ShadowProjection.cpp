@@ -2,7 +2,7 @@
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
-#include "Materials/MaterialInterface.h"
+#include "Materials/Material.h"
 
 namespace
 {
@@ -51,6 +51,8 @@ void AShadowProjection::AddMesh(UStaticMesh& Asset, UMaterialInterface& Material
     Mesh->SetGenerateOverlapEvents(false);
     Mesh->SetCanEverAffectNavigation(false);
     Mesh->SetCastShadow(false);
+    if (const UMaterial* BaseMaterial = Material.GetMaterial())
+        Mesh->bDisallowNanite = BaseMaterial->Wireframe;
     Mesh->SetStaticMesh(&Asset);
     Mesh->SetRelativeTransform(Relative);
     for (int32 Slot = 0; Slot < FMath::Max(1, Mesh->GetNumMaterials()); ++Slot)
@@ -80,6 +82,22 @@ bool AShadowProjection::BuildFootprint(const FShadowPlacement& Plan, UStaticMesh
 
 bool AShadowProjection::Build(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material)
 {
+    return BuildParts(Plan, Cube, Material, Material);
+}
+
+bool AShadowProjection::BuildWireframe(const FShadowPlacement& Plan, UStaticMesh& Cube)
+{
+    check(IsInGameThread());
+    auto* Wireframe = LoadObject<UMaterialInterface>(nullptr,
+        TEXT("/ShadowArchitect/Materials/M_ShadowWireframe.M_ShadowWireframe"));
+    auto* BoxEdges = LoadObject<UMaterialInterface>(nullptr,
+        TEXT("/ShadowArchitect/Materials/M_ShadowBoxEdges.M_ShadowBoxEdges"));
+    return Wireframe && BoxEdges && BuildParts(Plan, Cube, *Wireframe, *BoxEdges);
+}
+
+bool AShadowProjection::BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cube,
+    UMaterialInterface& MeshMaterial, UMaterialInterface& ProxyMaterial)
+{
     check(IsInGameThread());
     if (Plan.SchemaVersion != 1 || Plan.Parts.IsEmpty() || !Plan.Transform.IsValid()) return false;
     for (const FShadowPart& Part : Plan.Parts)
@@ -97,15 +115,17 @@ bool AShadowProjection::Build(const FShadowPlacement& Plan, UStaticMesh& Cube, U
         }
         if (Assets.IsEmpty() || Assets.Num() != Part.Meshes.Num())
         {
-            const FVector CubeSize = Cube.GetBoundingBox().GetSize();
+            const FBox CubeBounds = Cube.GetBoundingBox();
+            const FVector CubeSize = CubeBounds.GetSize();
             if (CubeSize.GetMin() <= 0) return false;
-            FTransform Box(FQuat::Identity, Part.BoundsCenter, Part.BoundsSize / CubeSize);
-            AddMesh(Cube, Material, Box * Part.InPlan);
+            const FVector Scale = Part.BoundsSize / CubeSize;
+            const FTransform Box(FQuat::Identity, Part.BoundsCenter - CubeBounds.GetCenter() * Scale, Scale);
+            AddMesh(Cube, ProxyMaterial, Box * Part.InPlan);
         }
         else
         {
             for (int32 Index = 0; Index < Assets.Num(); ++Index)
-                AddMesh(*Assets[Index], Material, Part.Meshes[Index].InPart * Part.InPlan);
+                AddMesh(*Assets[Index], MeshMaterial, Part.Meshes[Index].InPart * Part.InPlan);
         }
     }
     return true;

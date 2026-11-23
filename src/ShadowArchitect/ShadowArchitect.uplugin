@@ -8,7 +8,7 @@
   "Category": "Modding",
   "GameVersion": "520140",
   "IsExperimentalVersion": true,
-  "CanContainContent": false,
+  "CanContainContent": true,
   "Modules": [
     { "Name": "ShadowArchitect", "Type": "Runtime", "LoadingPhase": "Default", "PlatformAllowList": ["Win64"] }
   ],
