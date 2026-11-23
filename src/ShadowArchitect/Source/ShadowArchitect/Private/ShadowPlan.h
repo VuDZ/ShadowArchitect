@@ -45,6 +45,7 @@ struct FShadowPlacement
 
 // Only the data above crosses the save boundary.
 bool CaptureBlueprint(AFGBlueprintHologram& Preview, FShadowPlacement& Out, FString& Error);
+FBox CalculateFootprint(const TArray<FShadowPart>& Parts);
 
 UCLASS(Transient, NotPlaceable)
 class AShadowProjection : public AActor
@@ -53,6 +54,9 @@ class AShadowProjection : public AActor
 public:
     AShadowProjection();
     bool Build(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material);
+    bool BuildFootprint(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material);
+private:
+    void AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative);
 };
 
 UCLASS()

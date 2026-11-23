@@ -142,7 +142,7 @@ bool AShadowPlanSubsystem::ShowPlan(const FShadowPlacement& Plan)
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     auto* View = GetWorld()->SpawnActor<AShadowProjection>(AShadowProjection::StaticClass(), Plan.Transform, Params);
     if (!IsValid(View)) return false;
-    if (!View->Build(Plan, *ProxyCube, *ShadowMaterial))
+    if (!View->BuildFootprint(Plan, *ProxyCube, *ShadowMaterial))
     {
         View->Destroy();
         return false;
