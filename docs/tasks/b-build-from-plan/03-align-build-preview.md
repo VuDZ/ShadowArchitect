@@ -18,7 +18,7 @@
 ## Независимая проверка
 
 - [x] Выберите по очереди две копии на разных высотах и с разницей поворота 90°. Сверьте якорь и положение двух удалённых деталей у каждой; совпадение лишь центра габаритов недостаточно.
-- [ ] Откройте, отмените, повторите для другой цели. Число проекций, количество реальных зданий и ресурсы прежние. При отказе B02 не открывается preview другого чертежа.
+- [x] Откройте, отмените, повторите для другой цели. Число проекций, количество реальных зданий и ресурсы прежние. При отказе B02 не открывается preview другого чертежа.
 
 ## Игровой прогон
 
@@ -49,7 +49,15 @@ case=preview_cancel inventory_item_types=1->1 inventory_unchanged=1
 pass=1 two previews opened and cancelled
 ```
 
-В серии B02 подмена под прежним именем дала `source_case=replaced … preview=none visible=1 unchanged=1`. Этот прогон B03 сверял число записей планов. Для отдельного замера акторов проекций в SaveCheck добавлен счётчик `projection_actors`. [Игровая проверка B02](02-validate-source-blueprint.md)
+Повтор на сборке B04 с отключёнными `InfiniteNudge`, `SmartFoundations` и `InfiniteZoop` подтвердил результат. У планов `6875CA344253387A52AF5A8B4D5A2489` и `A4323B154A59326DE6276BB1CAD9CEF4` совпали все восемь деталей. После Escape число акторов проекций осталось 3 и 4 соответственно, реальные здания и запасы сохранились. Входной слот `SAQ_BASE_01`, выходной слот не записывался.
+
+```text
+case=preview_cancel projection_actors=3->3 inventory_item_types=1->1 inventory_unchanged=1
+case=preview_cancel projection_actors=4->4 inventory_item_types=1->1 inventory_unchanged=1
+pass=1 two previews opened and cancelled
+```
+
+В серии B02 подмена под прежним именем дала `source_case=replaced … preview=none visible=1 unchanged=1`. [Игровая проверка B02](02-validate-source-blueprint.md)
 
 ## Что передать проверяющему
 

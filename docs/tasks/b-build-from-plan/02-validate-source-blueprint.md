@@ -56,6 +56,15 @@ The Blueprint source is ambiguous. Multiple library files have the same contents
 This plan has no verifiable Blueprint source. Place a new plan from the Blueprint.
 ```
 
+Дополнительный прогон на сборке B04 загрузил `SAQ_B02_SOURCE_01`. После первого успешного Ctrl+Shift+F8 SaveCheck закрыл предпросмотр, подменил `QA_A.sbp` в одноразовой библиотеке и нажал то же сочетание без повторного выбора. У выбранного GUID осталась видимая проекция. В пределах плана и 800 см вокруг него сохранились 24 здания, в мире осталось 449 групп Blueprint с 4285 деталями. Запас материалов сохранился. Выходной слот не записывался. [Запуск SaveCheck](../../background-testing.md#b02b04-строительство-по-плану)
+
+```text
+source_live_replaced=1 id=403D6FE449B5CC9E91C3F8B2937FE501 preview=QA_A
+The Blueprint source has changed.
+source_case=live-replaced ... near_plan=24->24 proxies=449->449 parts=4285->4285 inventory_same=1 plan_same=1
+source_case=live-replaced ... preview=none visible=1 unchanged=1 pass=1
+```
+
 ## Что передать проверяющему
 
 Приложите результаты четырёх случаев и старой записи. Если добавились новые поля сохранения, передайте их ожидаемые значения в Q01.

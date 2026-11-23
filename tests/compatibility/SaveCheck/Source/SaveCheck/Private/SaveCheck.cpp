@@ -13,6 +13,7 @@
 DEFINE_LOG_CATEGORY_STATIC(LogSaveCheck, Log, All);
 
 FTickerDelegate MakeViewCheck(FString OutputDir, bool bCustomKeys);
+FTickerDelegate MakeBuildCheck(FString Mode);
 
 class FSaveCheck : public IModuleInterface
 {
@@ -72,6 +73,19 @@ class FSaveCheck : public IModuleInterface
 public:
     virtual void StartupModule() override
     {
+        FString BuildScenario;
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckBuild="), BuildScenario))
+        {
+            if (BuildScenario != TEXT("preview") && BuildScenario != TEXT("confirm") && BuildScenario != TEXT("confirm-replaced")
+                && !BuildScenario.StartsWith(TEXT("seed:SAQ_")) && !BuildScenario.StartsWith(TEXT("source:")))
+            {
+                UE_LOG(LogSaveCheck, Error, TEXT("Unknown SaveCheckBuild scenario"));
+                FPlatformMisc::RequestExit(false);
+                return;
+            }
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeBuildCheck(MoveTemp(BuildScenario)), 0.12f);
+            return;
+        }
         FString ViewFrames;
         if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckViews="), ViewFrames))
         {

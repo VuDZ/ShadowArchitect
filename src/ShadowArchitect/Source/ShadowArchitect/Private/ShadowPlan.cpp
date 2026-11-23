@@ -20,8 +20,17 @@
 class FShadowArchitectModule : public IModuleInterface
 {
 public:
-    void StartupModule() override { InstallBlueprintSourceHooks(); }
-    void ShutdownModule() override { RemoveBlueprintSourceHooks(); }
+    void StartupModule() override
+    {
+        InstallBlueprintSourceHooks();
+        AShadowPlanSubsystem::InstallPlanConstructionHooks();
+    }
+
+    void ShutdownModule() override
+    {
+        AShadowPlanSubsystem::RemovePlanConstructionHooks();
+        RemoveBlueprintSourceHooks();
+    }
 };
 
 IMPLEMENT_MODULE(FShadowArchitectModule, ShadowArchitect)

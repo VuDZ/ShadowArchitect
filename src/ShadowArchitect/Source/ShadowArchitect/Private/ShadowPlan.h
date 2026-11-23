@@ -11,6 +11,9 @@
 
 class AFGBlueprintHologram;
 class AFGHologram;
+class IFileHandle;
+class UFGBuildGunStateBuild;
+class UFGBlueprintDescriptor;
 class UMaterialInterface;
 class UStaticMesh;
 
@@ -93,6 +96,8 @@ protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 private:
+    friend class FShadowArchitectModule;
+
     UPROPERTY(SaveGame) TArray<FShadowPlacement> Plans;
     UPROPERTY(SaveGame) bool bVisible = true;
     UPROPERTY(Transient) TObjectPtr<UStaticMesh> ProxyCube;
@@ -115,6 +120,9 @@ private:
     FGuid Selected;
     TWeakObjectPtr<AFGBlueprintHologram> PlanBuildPreview;
     FGuid PlanBuildId;
+    TWeakObjectPtr<UFGBuildGunStateBuild> ClosingBuildState;
+    TWeakObjectPtr<UFGBlueprintDescriptor> ClosingBuildSource;
+    bool bConfirmingPlanBuild = false;
     FTimerHandle InputRetry;
     void Restore();
     bool ShowPlan(const FShadowPlacement& Plan);
@@ -130,6 +138,11 @@ private:
     void ToggleVisibility();
     void CycleView();
     void OpenSelectedBuildPreview();
+    static void InstallPlanConstructionHooks();
+    static void RemovePlanConstructionHooks();
+    TUniquePtr<IFileHandle> VerifyPlanConstruction(UFGBuildGunStateBuild& State,
+        AFGBlueprintHologram& Preview, FString& Error) const;
+    void ClosePlanBuildAfterConfirmation(UFGBuildGunStateBuild& BuildState, UFGBlueprintDescriptor* BuildSource);
 };
 
 UCLASS()
