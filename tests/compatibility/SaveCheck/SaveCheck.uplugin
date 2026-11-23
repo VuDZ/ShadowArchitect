@@ -1,0 +1,15 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1.0.0",
+  "SemVersion": "1.0.0",
+  "FriendlyName": "Save compatibility test probe",
+  "CanContainContent": false,
+  "Modules": [
+    {
+      "Name": "SaveCheck",
+      "Type": "Runtime",
+      "LoadingPhase": "PostEngineInit"
+    }
+  ]
+}

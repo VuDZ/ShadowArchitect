@@ -1,0 +1,56 @@
+# Unreal Engine and Alpakit output, including the isolated game profiles
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+/dist/
+*.zip
+
+# C++ build products (.obj can also be a Wavefront mesh used in docs)
+*.obj
+!/docs/foundation-spike.obj
+*.pdb
+*.dll
+*.lib
+*.exp
+*.exe
+*.pak
+*.ucas
+*.utoc
+
+# Player data and runtime diagnostics
+SaveGames/
+*.sav
+*.sav.bak
+*.sbp
+*.sbpcfg
+*.log
+*.dmp
+*.utrace
+
+# Generated IDE files and per-user settings
+.vs/
+.idea/
+.vscode/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.sln
+*.slnx
+*.vcxproj
+*.vcxproj.*
+*.suo
+*.user
+Thumbs.db
+.DS_Store
+
+# Local credentials and environment overrides
+.aws/
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key

@@ -1,0 +1,18 @@
+{
+  "FileVersion": 3,
+  "Version": 2,
+  "VersionName": "0.1.1",
+  "SemVersion": "0.1.1",
+  "FriendlyName": "Shadow Architect",
+  "Description": "Persistent visual plans captured from the active blueprint preview.",
+  "Category": "Modding",
+  "GameVersion": "520140",
+  "IsExperimentalVersion": true,
+  "CanContainContent": false,
+  "Modules": [
+    { "Name": "ShadowArchitect", "Type": "Runtime", "LoadingPhase": "Default", "PlatformAllowList": ["Win64"] }
+  ],
+  "Plugins": [
+    { "Name": "SML", "Enabled": true, "SemVersion": "3.12.1" }
+  ]
+}
