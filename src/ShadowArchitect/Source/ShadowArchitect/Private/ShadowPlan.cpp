@@ -1,4 +1,5 @@
 #include "ShadowPlan.h"
+#include "ShadowBlueprintSource.h"
 #include "Command/CommandSender.h"
 #include "Components/ActorComponent.h"
 #include "Components/InputComponent.h"
@@ -16,7 +17,14 @@
 #include "Subsystem/SubsystemActorManager.h"
 #include "TimerManager.h"
 
-IMPLEMENT_MODULE(FDefaultModuleImpl, ShadowArchitect)
+class FShadowArchitectModule : public IModuleInterface
+{
+public:
+    void StartupModule() override { InstallBlueprintSourceHooks(); }
+    void ShutdownModule() override { RemoveBlueprintSourceHooks(); }
+};
+
+IMPLEMENT_MODULE(FShadowArchitectModule, ShadowArchitect)
 DEFINE_LOG_CATEGORY_STATIC(LogShadowArchitect, Log, All);
 
 UShadowWorldModule::UShadowWorldModule()

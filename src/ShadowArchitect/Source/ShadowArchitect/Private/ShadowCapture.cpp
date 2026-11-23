@@ -1,4 +1,5 @@
 #include "ShadowPlan.h"
+#include "ShadowBlueprintSource.h"
 #include "Buildables/FGBuildable.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SplineMeshComponent.h"
@@ -100,5 +101,6 @@ bool CaptureBlueprint(AFGBlueprintHologram& Preview, FShadowPlacement& Out, FStr
         }
     }
     Out.Id = FGuid::NewGuid();
+    Out.BlueprintSourceProof = GetBlueprintSourceProof(Preview);
     return true;
 }

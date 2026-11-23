@@ -42,6 +42,7 @@ struct FShadowPlacement
     UPROPERTY(SaveGame) FString BlueprintId;
     UPROPERTY(SaveGame) FTransform Transform;
     UPROPERTY(SaveGame) TArray<FShadowPart> Parts;
+    UPROPERTY(SaveGame) FString BlueprintSourceProof;
 };
 
 // Only the data above crosses the save boundary.
