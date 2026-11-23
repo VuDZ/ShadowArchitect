@@ -405,5 +405,5 @@ FTickerDelegate MakeViewCheck(FString OutputDir, bool bCustomKeys)
     FViewProbe Probe;
     Probe.OutputDir = MoveTemp(OutputDir);
     Probe.bCustomKeys = bCustomKeys;
-    return FTSTickerDelegate::CreateLambda([Probe = MoveTemp(Probe)](float) mutable { return Probe.Tick(); });
+    return FTickerDelegate::CreateLambda([Probe = MoveTemp(Probe)](float) mutable { return Probe.Tick(); });
 }
