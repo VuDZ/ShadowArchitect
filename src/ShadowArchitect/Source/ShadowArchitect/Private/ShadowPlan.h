@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Command/ChatCommandInstance.h"
 #include "FGSaveInterface.h"
+#include "Framework/Commands/InputChord.h"
 #include "InputCoreTypes.h"
 #include "Module/GameWorldModule.h"
 #include "Subsystem/ModSubsystem.h"
@@ -46,6 +47,13 @@ struct FShadowPlacement
 // Only the data above crosses the save boundary.
 bool CaptureBlueprint(AFGBlueprintHologram& Preview, FShadowPlacement& Out, FString& Error);
 FBox CalculateFootprint(const TArray<FShadowPart>& Parts);
+
+enum class EShadowView : uint8
+{
+    Ghost,
+    Wireframe,
+    Footprint
+};
 
 UCLASS(Transient, NotPlaceable)
 class AShadowProjection : public AActor
@@ -93,11 +101,20 @@ private:
     UPROPERTY(Config) FKey MoveKey;
     UPROPERTY(Config) FKey DeleteKey;
     UPROPERTY(Config) FKey VisibilityKey;
+    UPROPERTY(Config) FKey ViewKey;
+    UPROPERTY(Config) FInputChord PlaceChord;
+    UPROPERTY(Config) FInputChord SelectChord;
+    UPROPERTY(Config) FInputChord MoveChord;
+    UPROPERTY(Config) FInputChord DeleteChord;
+    UPROPERTY(Config) FInputChord VisibilityChord;
+    UPROPERTY(Config) FInputChord ViewChord;
+    EShadowView ViewMode = EShadowView::Ghost;
     TMap<FGuid, TWeakObjectPtr<AShadowProjection>> Views;
     FGuid Selected;
     FTimerHandle InputRetry;
     void Restore();
     bool ShowPlan(const FShadowPlacement& Plan);
+    bool BuildView(AShadowProjection& View, const FShadowPlacement& Plan, EShadowView Mode) const;
     void ClearViews();
     void BindControls();
     void Notify(const FString& Text) const;
@@ -107,6 +124,7 @@ private:
     void MoveSelected();
     void DeleteSelected();
     void ToggleVisibility();
+    void CycleView();
 };
 
 UCLASS()

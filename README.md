@@ -1,8 +1,8 @@
 # Shadow Architect
 
-Планирование фабрики в одиночной Satisfactory. Игрок выставляет пользовательский Blueprint штатным Build Gun и отдельной клавишей фиксирует его проекцию. Исходники рассчитаны на Windows Steam, Satisfactory **1.2.5.1 / CL 520140**, SML **3.12.1** и UE **5.6.1-CSS**. [Совместимость в релизе SML](https://github.com/satisfactorymodding/SatisfactoryModLoader/releases/tag/v3.12.1)
+Планирование фабрики в одиночной Satisfactory. Игрок выставляет пользовательский Blueprint штатным Build Gun и отдельной клавишей фиксирует его проекцию. Исходники рассчитаны на Windows Steam, Satisfactory **CL 520140**, SML **3.12.1** и UE **5.6.1-CSS**. [Совместимость в релизе SML](https://github.com/satisfactorymodding/SatisfactoryModLoader/releases/tag/v3.12.1)
 
-**Сборка для локального теста, 23 ноября 2026 года.** Собраны редакторная DLL и Steam Shipping DLL. Alpakit упаковал Windows ZIP. Для установки при закрытой игре распакуйте его в `<игра>/FactoryGame/Mods/ShadowArchitect/` рядом с установленным SML 3.12.1. После распаковки в этом каталоге должен находиться `ShadowArchitect.uplugin`. Игровые сценарии A–E ещё требуют проверки. Архив локальной сборки 0.1.1 — `dist/ShadowArchitect-0.1.1-Steam-Windows.zip`. [Протокол испытаний](docs/test-plan.md)
+**Локальная сборка 0.1.2 для Steam Windows.** Архив `dist/ShadowArchitect-0.1.2-Steam-Windows.zip` включает Ghost, Wireframe, Footprint и переназначение клавиш. При закрытой игре распакуйте архив в `<игра>/FactoryGame/Mods/ShadowArchitect/` рядом с SML 3.12.1. В этом каталоге должен находиться `ShadowArchitect.uplugin` с `VersionName` равным `0.1.2`. Архивы хранятся локально. Для чистого клона используйте инструкцию сборки ниже. [Проверка V03](docs/tasks/V03.md)
 
 Офлайн прочитаны 25 игровых Blueprint и воспроизведён чертёж из 16 фундаментов. [Исходники](src/ShadowArchitect/) · [Результаты исследования](docs/feasibility.md) · [Архитектура](docs/architecture.md)
 
@@ -13,7 +13,7 @@
 ## Сборка и установка для локального теста
 
 1. Подготовьте Starter Project тега `v3.12.1` с соответствующими бинарными зависимостями, редактором 5.6.1-CSS и интеграцией Wwise 2025.1.6.9117. Руководство указывает VS 2022 и MSVC v143 14.38. [Исходный проект](https://github.com/satisfactorymodding/SatisfactoryModLoader/tree/v3.12.1) · [Зависимости](https://docs.ficsit.app/satisfactory-modding/latest/Development/BeginnersGuide/dependencies.html) · [Подготовка проекта](https://docs.ficsit.app/satisfactory-modding/latest/Development/BeginnersGuide/project_setup.html)
-2. При закрытом редакторе поместите `ShadowArchitect.uplugin`, `Config` и `Source` из `src/ShadowArchitect` в `<Starter>/Mods/ShadowArchitect/`. На машине разработки вместо копии можно использовать junction на каталог плагина. Это обычный runtime-плагин с нативным Game World Module.
+2. При закрытом редакторе поместите `ShadowArchitect.uplugin`, `Config`, `Content` и `Source` из `src/ShadowArchitect` в `<Starter>/Mods/ShadowArchitect/`. На машине разработки вместо копии можно использовать junction на каталог плагина. В `Content` лежат материалы Wireframe, которые Alpakit приготовит для клиента.
 3. Обновите project files для `FactoryGame.uproject`. Соберите проект `FactoryGame` в конфигурации **Development Editor | Win64**. Откройте проект в CSS-редакторе. [Конфигурации сборки](https://docs.ficsit.app/satisfactory-modding/latest/Development/Cpp/setup.html)
 4. При закрытой игре выберите в **Alpakit Dev** плагин **Shadow Architect**, Windows, каталог Steam-игры и **Copy to Game Path**. Запустите упаковку. Для ручной диагностики клиентская цель — `FactoryGameSteam`, конфигурация **Shipping | Win64**. Установленная версия SML должна совпадать с целевой. Разрабатываемый плагин ставится в `<игра>/FactoryGame/Mods/ShadowArchitect/`.
 5. Для передаваемого пакета запустите **Alpakit Release**. В `Config/Alpakit.ini` выбрана цель Windows. Архивы располагаются в `<Starter>/Saved/ArchivedPlugins/ShadowArchitect/`. В платформенном ZIP файл `ShadowArchitect.uplugin` лежит рядом с `Binaries/Win64/`. Содержимое такого ZIP распаковывают в каталог мода из шага 4. Если получен объединённый `ShadowArchitect.zip`, для ручной установки возьмите содержимое его папки `Windows/`. [Код упаковки Alpakit](https://github.com/satisfactorymodding/SatisfactoryModLoader/blob/v3.12.1/Mods/Alpakit/Source/Alpakit.Automation/PackagePlugin.cs)
@@ -29,14 +29,24 @@
 | Ctrl+Shift+J | Выбрать следующий план по кругу. В чате появятся название, GUID и координаты в см. |
 | Ctrl+Shift+M | Перенести выбранный план в положение и поворот текущего preview. Можно использовать обычный фундамент как ориентир, даже если исходный Blueprint удалён. |
 | Ctrl+Shift+K | Удалить выбранный план. Для следующего удаления нужно снова выбрать план. |
-| Ctrl+Shift+V | Скрыть или показать все планы в мире. Режим сохраняется вместе с миром. |
+| Ctrl+Shift+V | Скрыть или показать все планы в мире. Видимость сохраняется вместе с миром. |
+| Ctrl+Shift+G | Переключить вид всех планов по кругу Ghost → Wireframe → Footprint → Ghost. |
 
-Клавиши можно переназначить в пользовательском `%LOCALAPPDATA%/FactoryGame/Saved/Config/Windows/Game.ini` при закрытой игре. Например, следующий блок задаёт F7 для Place Shadow. Остальные поля называются `SelectKey`, `MoveKey`, `DeleteKey` и `VisibilityKey`. Конкретные сочетания со Smart! подлежат проверке на вашем профиле.
+При загрузке мира используется Ghost.
+
+При закрытой игре откройте `%LOCALAPPDATA%/FactoryGame/Saved/Config/Windows/Game.ini`. В этом блоке можно указать полные сочетания для всех шести действий. Пример воспроизводит стандартные привязки. Пропущенные модификаторы в строке `Chord` считаются выключенными.
 
 ```ini
 [/Script/ShadowArchitect.ShadowPlanSubsystem]
-PlaceKey=F7
+PlaceChord=(Key=F7)
+SelectChord=(Key=J,bCtrl=True,bShift=True)
+MoveChord=(Key=M,bCtrl=True,bShift=True)
+DeleteChord=(Key=K,bCtrl=True,bShift=True)
+VisibilityChord=(Key=V,bCtrl=True,bShift=True)
+ViewChord=(Key=G,bCtrl=True,bShift=True)
 ```
+
+Существующие `PlaceKey`, `SelectKey`, `MoveKey`, `DeleteKey`, `VisibilityKey` и `ViewKey` работают со стандартными модификаторами. Если заданы и `Key`, и `Chord` для одного действия, используется сочетание из `Chord`. Для Alt и клавиши Windows используйте `bAlt=True` и `bCmd=True`.
 
 ## Что можно проверить сейчас
 

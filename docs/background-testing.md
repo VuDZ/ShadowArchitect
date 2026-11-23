@@ -69,3 +69,22 @@ Select-String -LiteralPath $log -Pattern 'LogSaveCheck:|LogShadowArchitect:|LogE
 - **Q03, отключение и запись.** До `Start-Process` добавьте к `$gameArgs` два отдельных аргумента: `-DisablePlugins=ShadowArchitect` и `-SaveCheckWrite=SAQ_<новое_имя>`. Выберите свободное имя. Плагин проверяет префикс и существование слота. Дождитесь `write=1` и завершения процесса, укажите выходной слот в `$slot`, уберите оба аргумента и повторите запуск. Для 0.1.1 в контрольном мире результат был 2 плана в исходном слоте и 0 в пересохранённом. [Карточка Q03](tasks/Q03.md)
 
 Для проверки F7 выберите чертёж в Build Gun, нажмите F7 и сверьте появившуюся проекцию с записью `Placed` в журнале. Для Wireframe или экранной метки приложите кадр клиентской сборки. При проверке списания ресурсов, привязки к поверхности и реальной постройки снимайте соответствующие значения в игре или добавьте измерение в тестовый модуль. В отчёт переносите только относящиеся к опыту строки журнала: полный лог запуска может содержать сведения об учётной записи.
+
+## V03. Проверка DLL из установочного архива
+
+Установите Shadow Architect из проверяемого ZIP в отдельную копию Steam-клиента. SaveCheck соберите из этого репозитория и подключите отдельным плагином через `-PLUGIN`. Возьмите тестовый слот с двумя видимыми планами и доступным фундаментом рядом, например `SAQ_BASE_01` с сеансом `SAQ01`. Поместите один Blueprint вместе с его `.sbpcfg` в отдельный `-FGBlueprintDir`. В контрольном прогоне использовался «2 сборщика кабелей».
+
+В команде фонового запуска замените `-SaveCheckRun` на `-SaveCheckViews=<абсолютный путь к новому каталогу кадров>`. Для отдельной установки запустите её `FactoryGameSteam.exe` при открытом Steam, опустив `-applaunch 526870`. SaveCheck считывает планы через свойства Unreal, подаёт клавиши через обработчик ввода игрока и снимает два кадра Ghost. Завершение сценария подтверждают `installed_module=1`, строки переходов и `pass=1 completed` в `LogSaveCheckViews`. Сверьте указанный `loaded_module` с каталогом установки и сравните SHA-256 этой DLL с DLL из ZIP до и после запуска. [Исходник проверки](../tests/compatibility/SaveCheck/Source/SaveCheck/Private/ViewCheck.cpp)
+
+Для второго прогона добавьте `-SaveCheckCustomKeys` и поместите этот блок в `Saved/Config/Windows/Game.ini` отдельного профиля `-UserDir`.
+
+```ini
+[/Script/ShadowArchitect.ShadowPlanSubsystem]
+PlaceKey=F7
+PlaceChord=(Key=F8,bAlt=True)
+SelectKey=F5
+MoveChord=(Key=F6,bShift=True)
+DeleteChord=(Key=F10,bCtrl=True)
+VisibilityChord=(Key=F9,bAlt=True)
+ViewChord=(Key=F11,bAlt=True)
+```

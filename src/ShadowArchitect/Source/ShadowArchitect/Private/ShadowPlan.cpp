@@ -1,5 +1,6 @@
 #include "ShadowPlan.h"
 #include "Command/CommandSender.h"
+#include "Components/ActorComponent.h"
 #include "Components/InputComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -8,7 +9,6 @@
 #include "FGChatManager.h"
 #include "FGPlayerController.h"
 #include "GameFramework/GameStateBase.h"
-#include "Framework/Commands/InputChord.h"
 #include "GameFramework/PlayerController.h"
 #include "Hologram/FGBlueprintHologram.h"
 #include "Materials/MaterialInterface.h"
@@ -62,6 +62,7 @@ AShadowPlanSubsystem::AShadowPlanSubsystem()
     MoveKey = EKeys::M;
     DeleteKey = EKeys::K;
     VisibilityKey = EKeys::V;
+    ViewKey = EKeys::G;
 }
 
 void AShadowPlanSubsystem::BeginPlay()
@@ -92,19 +93,22 @@ void AShadowPlanSubsystem::BindControls()
         UE_LOG(LogShadowArchitect, Error, TEXT("Unable to attach local input"));
         return;
     }
-    auto Bind = [this](FKey Key, void (AShadowPlanSubsystem::*Action)())
+    auto Bind = [this](const FInputChord& Configured, FKey Key, bool bUseCtrlShift, void (AShadowPlanSubsystem::*Action)())
     {
-        if (Key.IsValid())
-            InputComponent->BindKey(FInputChord(Key, true, true, false, false), IE_Pressed, this, Action).bConsumeInput = false;
+        const FInputChord Chord = Configured.IsValidChord() ? Configured : FInputChord(Key, bUseCtrlShift, bUseCtrlShift, false, false);
+        if (Chord.IsValidChord())
+            InputComponent->BindKey(Chord, IE_Pressed, this, Action).bConsumeInput = false;
+        return Chord;
     };
-    if (PlaceKey.IsValid())
-        InputComponent->BindKey(PlaceKey, IE_Pressed, this, &AShadowPlanSubsystem::Place).bConsumeInput = false;
-    Bind(SelectKey, &AShadowPlanSubsystem::SelectNext);
-    Bind(MoveKey, &AShadowPlanSubsystem::MoveSelected);
-    Bind(DeleteKey, &AShadowPlanSubsystem::DeleteSelected);
-    Bind(VisibilityKey, &AShadowPlanSubsystem::ToggleVisibility);
-    Notify(FString::Printf(TEXT("Ready. %d saved plan(s). Place with %s or /shadowplace."),
-        Plans.Num(), *PlaceKey.ToString()));
+    const FInputChord PlaceBinding = Bind(PlaceChord, PlaceKey, false, &AShadowPlanSubsystem::Place);
+    Bind(SelectChord, SelectKey, true, &AShadowPlanSubsystem::SelectNext);
+    Bind(MoveChord, MoveKey, true, &AShadowPlanSubsystem::MoveSelected);
+    Bind(DeleteChord, DeleteKey, true, &AShadowPlanSubsystem::DeleteSelected);
+    Bind(VisibilityChord, VisibilityKey, true, &AShadowPlanSubsystem::ToggleVisibility);
+    Bind(ViewChord, ViewKey, true, &AShadowPlanSubsystem::CycleView);
+    const FString PlaceHint = PlaceBinding.IsValidChord()
+        ? PlaceBinding.GetInputText().ToString() + TEXT(" or /shadowplace") : TEXT("/shadowplace");
+    Notify(FString::Printf(TEXT("Ready. %d saved plan(s). Place with %s."), Plans.Num(), *PlaceHint));
 }
 
 AFGHologram* AShadowPlanSubsystem::ActivePreview() const
@@ -135,14 +139,14 @@ void AShadowPlanSubsystem::Notify(const FString& Text) const
 
 bool AShadowPlanSubsystem::ShowPlan(const FShadowPlacement& Plan)
 {
-    if (!ProxyCube || !ShadowMaterial || !Plan.Id.IsValid() || !Plan.Transform.IsValid()
+    if (!Plan.Id.IsValid() || !Plan.Transform.IsValid()
         || Plan.SchemaVersion != 1 || Views.Contains(Plan.Id)) return false;
     FActorSpawnParameters Params;
     Params.ObjectFlags |= RF_Transient;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     auto* View = GetWorld()->SpawnActor<AShadowProjection>(AShadowProjection::StaticClass(), Plan.Transform, Params);
     if (!IsValid(View)) return false;
-    if (!View->BuildFootprint(Plan, *ProxyCube, *ShadowMaterial))
+    if (!BuildView(*View, Plan, ViewMode))
     {
         View->Destroy();
         return false;
@@ -150,6 +154,21 @@ bool AShadowPlanSubsystem::ShowPlan(const FShadowPlacement& Plan)
     View->SetActorHiddenInGame(!bVisible);
     Views.Add(Plan.Id, View);
     return true;
+}
+
+bool AShadowPlanSubsystem::BuildView(AShadowProjection& View, const FShadowPlacement& Plan, EShadowView Mode) const
+{
+    if (!ProxyCube) return false;
+    switch (Mode)
+    {
+    case EShadowView::Ghost:
+        return ShadowMaterial && View.Build(Plan, *ProxyCube, *ShadowMaterial);
+    case EShadowView::Wireframe:
+        return View.BuildWireframe(Plan, *ProxyCube);
+    case EShadowView::Footprint:
+        return ShadowMaterial && View.BuildFootprint(Plan, *ProxyCube, *ShadowMaterial);
+    }
+    return false;
 }
 
 void AShadowPlanSubsystem::Place()
@@ -220,6 +239,42 @@ void AShadowPlanSubsystem::ToggleVisibility()
     for (const auto& Entry : Views)
         if (Entry.Value.IsValid()) Entry.Value->SetActorHiddenInGame(!bVisible);
     Notify(bVisible ? TEXT("Plans visible.") : TEXT("Plans hidden."));
+}
+
+void AShadowPlanSubsystem::CycleView()
+{
+    constexpr const TCHAR* ModeNames[] = { TEXT("Ghost"), TEXT("Wireframe"), TEXT("Footprint") };
+    const int32 NextIndex = (static_cast<int32>(ViewMode) + 1) % UE_ARRAY_COUNT(ModeNames);
+    const auto NextMode = static_cast<EShadowView>(NextIndex);
+
+    struct FViewChange
+    {
+        AShadowProjection* Actor;
+        int32 PreviousComponents;
+    };
+    TArray<FViewChange> Changes;
+    Changes.Reserve(Views.Num());
+    for (const FShadowPlacement& Plan : Plans)
+    {
+        auto* View = Views.FindRef(Plan.Id).Get();
+        if (!View) continue;
+        Changes.Add({ View, View->GetInstanceComponents().Num() });
+        if (!BuildView(*View, Plan, NextMode))
+        {
+            for (const FViewChange& Change : Changes)
+                for (int32 Index = Change.Actor->GetInstanceComponents().Num() - 1; Index >= Change.PreviousComponents; --Index)
+                    Change.Actor->GetInstanceComponents()[Index]->DestroyComponent();
+            Notify(FString::Printf(TEXT("Could not display plans in %s view."), ModeNames[NextIndex]));
+            return;
+        }
+    }
+
+    // Keep the previous components until every plan can use the new mode.
+    for (const FViewChange& Change : Changes)
+        for (int32 Index = Change.PreviousComponents - 1; Index >= 0; --Index)
+            Change.Actor->GetInstanceComponents()[Index]->DestroyComponent();
+    ViewMode = NextMode;
+    Notify(FString::Printf(TEXT("Plan view: %s."), ModeNames[NextIndex]));
 }
 
 void AShadowPlanSubsystem::ClearViews()

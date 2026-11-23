@@ -7,9 +7,12 @@
 #include "FGSaveSession.h"
 #include "FGSaveSystem.h"
 #include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Misc/SecureHash.h"
 #include "UObject/UnrealType.h"
 DEFINE_LOG_CATEGORY_STATIC(LogSaveCheck, Log, All);
+
+FTickerDelegate MakeViewCheck(FString OutputDir, bool bCustomKeys);
 
 class FSaveCheck : public IModuleInterface
 {
@@ -69,6 +72,13 @@ class FSaveCheck : public IModuleInterface
 public:
     virtual void StartupModule() override
     {
+        FString ViewFrames;
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckViews="), ViewFrames))
+        {
+            const bool bCustomKeys = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckCustomKeys"));
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeViewCheck(MoveTemp(ViewFrames), bCustomKeys), 0.35f);
+            return;
+        }
         if(FParse::Param(FCommandLine::Get(),TEXT("SaveCheckRun"))) Handle=FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateRaw(this,&FSaveCheck::Tick),0.6f);
     }
     virtual void ShutdownModule() override { FTSTicker::GetCoreTicker().RemoveTicker(Handle); }
