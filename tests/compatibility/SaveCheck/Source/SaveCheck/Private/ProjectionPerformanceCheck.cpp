@@ -21,6 +21,7 @@
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
+#include "ProfilingDebugging/MiscTrace.h"
 #include "RenderTimer.h"
 #include "RenderingThread.h"
 #include "RHICommandList.h"
@@ -393,7 +394,6 @@ struct FProjectionPerformanceCheck : TSharedFromThis<FProjectionPerformanceCheck
 
 struct FProjectionMemoryCheck : TSharedFromThis<FProjectionMemoryCheck>
 {
-    static constexpr int32 GridFirst = 2;
     static constexpr const TCHAR* EmptySlot = TEXT("SAQ_F02_000_PILOT");
     static constexpr const TCHAR* GridSlot = TEXT("SAQ_F02_100_PILOT");
     enum class EStage { FindWorld, ReleaseKeys, Settle, Observe };
@@ -403,6 +403,9 @@ struct FProjectionMemoryCheck : TSharedFromThis<FProjectionMemoryCheck>
     double Deadline = FPlatformTime::Seconds() + 75;
     double GridDeadline = 0;
     int32 Cycles = 5;
+    int32 Rounds = 1;
+    int32 Round = 1;
+    int32 GridFirst = 2;
     int32 Step = 0;
     bool bTrace = false;
     bool bIdle = false;
@@ -412,6 +415,9 @@ struct FProjectionMemoryCheck : TSharedFromThis<FProjectionMemoryCheck>
     TWeakObjectPtr<UWorld> GridWorld;
     bool bGridUnloaded = false;
     const bool bIsm = FParse::Param(FCommandLine::Get(), TEXT("ShadowPerPlanISM"));
+    const bool bEmptyControl = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckMemoryEmptyControl"));
+    const bool bSparseChecks = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckMemorySparseChecks"));
+    const bool bInsights = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckMemoryBookmarks"));
 
     ~FProjectionMemoryCheck() { FWorldDelegates::OnWorldCleanup.Remove(CleanupHandle); }
 
@@ -432,9 +438,22 @@ struct FProjectionMemoryCheck : TSharedFromThis<FProjectionMemoryCheck>
 
     void Mark(const TCHAR* Event) const
     {
+        const uint64 Qpc = FPlatformTime::Cycles64();
+        const TCHAR* WorldPhase = Phase();
         UE_LOG(LogSaveCheckProjectionMemory, Display, TEXT("event=%s phase=%s step=%d cycle=%d mode=%s qpc=%llu"),
-            Event, Phase(), Step, IsGrid() ? (Step - GridFirst + 2) / 3 : 0,
-            IsMenu() ? TEXT("menu") : ProfileModes[Mode()], static_cast<unsigned long long>(FPlatformTime::Cycles64()));
+            Event, WorldPhase, Step, IsGrid() ? (Step - GridFirst + 2) / 3 : 0,
+            IsMenu() ? TEXT("menu") : ProfileModes[Mode()], static_cast<unsigned long long>(Qpc));
+
+        if (!bInsights) return;
+        const bool bCheckpoint = FCString::Strcmp(Event, TEXT("window_begin")) == 0
+            && (Step == 1 || Step == GridFirst || Step >= MenuAfter() - 1);
+        const bool bGridLoad = Step == GridFirst && FCString::Strcmp(Event, TEXT("travel")) == 0;
+        const bool bGridEnd = Step == MenuAfter() - 1 && FCString::Strcmp(Event, TEXT("window_end")) == 0;
+        if (bCheckpoint || bGridLoad || bGridEnd || FCString::Strncmp(Event, TEXT("gc_"), 3) == 0)
+        {
+            TRACE_BOOKMARK_CYCLES(Qpc, TEXT("F11 %s %s step=%d qpc=%llu"),
+                Event, WorldPhase, Step, static_cast<unsigned long long>(Qpc));
+        }
     }
 
     void OnWorldCleanup(UWorld* World, bool, bool)
@@ -474,9 +493,9 @@ struct FProjectionMemoryCheck : TSharedFromThis<FProjectionMemoryCheck>
             TEXT("snapshot step=%d phase=%s mode=%s plans=%d actors=%d meshes=%d ism_groups=%d ism_instances=%d visual_instances=%d"),
             Step, Phase(), ProfileModes[Mode()], Plans.Num(), Counts.Actors, Counts.Meshes,
             Counts.IsmGroups, Counts.IsmInstances, Counts.Visuals());
-        const int32 Expected = IsGrid() ? 100 : 0;
+        const int32 Expected = IsGrid() && !bEmptyControl ? 100 : 0;
         if (Plans.Num() != Expected || Counts.Actors != Expected) return false;
-        if (!IsGrid() || Mode() == 2) return Counts.Meshes == Expected && Counts.IsmGroups == 0;
+        if (!Expected || Mode() == 2) return Counts.Meshes == Expected && Counts.IsmGroups == 0;
         return Counts.Visuals() == 3800 && Counts.Meshes == (bIsm ? 600 : 3800)
             && Counts.IsmGroups == (bIsm ? 500 : 0) && Counts.IsmInstances == (bIsm ? 3700 : 0);
     }
@@ -574,7 +593,8 @@ struct FProjectionMemoryCheck : TSharedFromThis<FProjectionMemoryCheck>
     void Travel(UWorld& World, double Now)
     {
         const FName Map = IsMenu() ? MenuMap : GridMap;
-        const FString Options = IsMenu() ? FString() : FString::Printf(TEXT("loadgame=%s?sessionName=SAQMemory"), IsGrid() ? GridSlot : EmptySlot);
+        const FString Options = IsMenu() ? FString()
+            : FString::Printf(TEXT("loadgame=%s?sessionName=SAQMemory"), IsGrid() && !bEmptyControl ? GridSlot : EmptySlot);
         PreviousWorld = &World;
         Stage = EStage::FindWorld;
         Deadline = Now + 75;
@@ -606,7 +626,11 @@ struct FProjectionMemoryCheck : TSharedFromThis<FProjectionMemoryCheck>
                     if (!Save) continue;
                     Save->SetAutoSaveEnabled(false);
                     if (!SetProjectionCamera(*World, *Player)) return End(false, TEXT("benchmark camera missing"));
-                    if (IsGrid()) GridWorld = World;
+                    if (IsGrid())
+                    {
+                        GridWorld = World;
+                        bGridUnloaded = false;
+                    }
                 }
                 UE_LOG(LogSaveCheckProjectionMemory, Display, TEXT("world step=%d map=%s"), Step, *Map);
                 Settle(Now);
@@ -622,8 +646,10 @@ struct FProjectionMemoryCheck : TSharedFromThis<FProjectionMemoryCheck>
             {
                 if (Stage == EStage::Settle)
                 {
-                    if (!IsMenu() && !AcceptLayout(*World)) return End(false, TEXT("unexpected projection layout"));
-                    if (bTrace && (Step <= GridFirst || Step >= MenuAfter() - 1)) TraceObjects(*World);
+                    const bool bGridMiddle = IsGrid() && Step != GridFirst && Step != MenuAfter() - 1;
+                    if (!IsMenu() && (!bSparseChecks || !bGridMiddle) && !AcceptLayout(*World))
+                        return End(false, TEXT("unexpected projection layout"));
+                    if (bTrace && !bGridMiddle) TraceObjects(*World);
                     Mark(TEXT("window_begin"));
                     Stage = EStage::Observe;
                     Deadline = (bTrace && IsGrid() ? GridDeadline : Now) + WindowSeconds;
@@ -631,7 +657,14 @@ struct FProjectionMemoryCheck : TSharedFromThis<FProjectionMemoryCheck>
                 else
                 {
                     Mark(TEXT("window_end"));
-                    if (Step == EmptyAfter()) return End(true, TEXT("complete memory route"));
+                    if (Step == EmptyAfter())
+                    {
+                        if (Round == Rounds) return End(true, TEXT("complete memory route"));
+                        ++Round;
+                        GridFirst = ++Step;
+                        Travel(*World, Now);
+                        return true;
+                    }
                     ++Step;
                     if (bTrace && Step == MenuAfter() + 1)
                     {
@@ -676,12 +709,13 @@ FTickerDelegate MakeProjectionPerformanceCheck(FString Output, int32 ExpectedPla
     return FTickerDelegate::CreateLambda([Check](float) { return Check->Tick(); });
 }
 
-FTickerDelegate MakeProjectionMemoryCheck(double SettleSeconds, double WindowSeconds, int32 Cycles, bool bTrace, bool bIdle)
+FTickerDelegate MakeProjectionMemoryCheck(double SettleSeconds, double WindowSeconds, int32 Cycles, int32 Rounds, bool bTrace, bool bIdle)
 {
     const auto Check = MakeShared<FProjectionMemoryCheck>();
     Check->SettleSeconds = SettleSeconds;
     Check->WindowSeconds = WindowSeconds;
     Check->Cycles = Cycles;
+    Check->Rounds = Rounds;
     Check->bTrace = bTrace;
     Check->bIdle = bIdle;
     Check->CleanupHandle = FWorldDelegates::OnWorldCleanup.AddSP(Check, &FProjectionMemoryCheck::OnWorldCleanup);

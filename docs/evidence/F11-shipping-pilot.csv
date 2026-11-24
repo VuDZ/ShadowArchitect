@@ -1,0 +1,7 @@
+case,pid,phase,step,qpc,qpc_hz,samples,private_working_set_mib,private_bytes_mib,registered_projection_components,pending_projection_objects,previous_world_projection_objects,binned2_totals_available,trace_live_mib
+shipping-insights-pilot,83336,empty_before,1,2636382946077,10000000,5,2934.996,5574.113,0,0,0,0,
+shipping-insights-pilot,83336,grid,2,2636460133366,10000000,4,3004.494,5614.207,3800,0,0,0,
+shipping-insights-pilot,83336,grid,8,2636568458475,10000000,5,3031.883,5529.832,3800,0,0,0,
+shipping-insights-pilot,83336,menu_after,9,2636639658696,10000000,5,2263.312,4349.973,0,0,0,0,
+shipping-insights-pilot,83336,menu_after_gc,10,2636680661480,10000000,5,2259.059,4417.562,0,0,0,0,
+shipping-insights-pilot,83336,empty_after,11,2636753617694,10000000,4,3049.201,5643.824,0,0,0,0,

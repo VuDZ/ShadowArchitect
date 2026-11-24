@@ -1,4 +1,4 @@
-"""Run the F10 Shipping memory routes against the isolated F08 client."""
+"""Run Shipping memory routes against the isolated F08 client."""
 
 import argparse
 import ctypes as ct
@@ -21,6 +21,7 @@ ORDER = (
     (1, False, "cycle"), (1, True, "idle"), (1, True, "cycle"), (1, False, "idle"),
     (2, True, "cycle"), (2, False, "idle"), (2, False, "cycle"), (2, True, "idle"),
 )
+REUSE_ORDER = ((1, "control"), (1, "ordinary"), (1, "ism"), (2, "ism"), (2, "ordinary"), (2, "control"))
 
 
 def process_names():
@@ -71,7 +72,8 @@ def input_slots():
     return result
 
 
-def run(output, plugin, label, ism, route, cycles, diagnostic=False):
+def run(output, plugin, label, ism, route, cycles, diagnostic=False, insights=False,
+        rounds=1, empty_control=False, sparse_checks=False):
     names = process_names()
     if any(name.startswith("factorygame") for name in names):
         raise RuntimeError("Satisfactory is already running")
@@ -105,39 +107,82 @@ def run(output, plugin, label, ism, route, cycles, diagnostic=False):
     ]
     if ism:
         command.append("-ShadowPerPlanISM")
-    with (output / f"{label}-identity.json").open("x", encoding="utf-8") as stream:
-        json.dump({
-            "archive_sha256": trial["archive_sha256"], "mod_dll_sha256": trial["dll_sha256"],
-            "savecheck_sha256": hash_file(plugin.parent / "Binaries/Win64" / DLL_NAME.format("SaveCheck")),
-            "save_sha256": hashes, "ism": ism, "route": route, "cycles": cycles,
-            "grid_settle_seconds": settle, "observation_seconds": window, "command": command,
-        }, stream, indent=2)
+    if rounds > 1:
+        command.append(f"-SaveCheckMemoryRounds={rounds}")
+    if empty_control:
+        command.append("-SaveCheckMemoryEmptyControl")
+    if sparse_checks:
+        command.append("-SaveCheckMemorySparseChecks")
+    trace = output / f"{label}.utrace"
+    if insights:
+        command.extend(["-trace=default,memory,bookmark", f"-tracefile={trace}",
+                        "-notraceserver", "-SaveCheckMemoryBookmarks"])
+    savecheck_dll = plugin.parent / "Binaries/Win64" / DLL_NAME.format("SaveCheck")
+    identity = {
+        "archive_sha256": trial["archive_sha256"], "mod_dll_sha256": trial["dll_sha256"],
+        "savecheck_sha256": hash_file(savecheck_dll), "save_sha256": hashes, "ism": ism,
+        "route": route, "cycles": cycles, "grid_settle_seconds": settle,
+        "observation_seconds": window, "command": command,
+    }
+    identity_path = output / f"{label}-identity.json"
+    with identity_path.open("x", encoding="utf-8") as stream:
+        json.dump(identity, stream, indent=2)
     print(f"Starting {label}", flush=True)
     launcher = subprocess.Popen(command, cwd=client, creationflags=subprocess.CREATE_NO_WINDOW)
     subprocess.run([
         sys.executable, "-B", str(ROOT / "scripts/sample_projection_memory.py"),
         "--log", str(log), "--output", str(output / f"{label}.csv"), "--dll", str(dll),
-        "--ism", str(int(ism)), "--ram-only", "--timeout", str(480 + 6 * cycles),
+        "--ism", str(int(ism)), "--ram-only", "--timeout", str(rounds * (480 + 6 * cycles)),
         *(["--regions-output", str(output / f"{label}-regions.csv")] if diagnostic else []),
     ], check=True)
     launcher.wait(timeout=30)
-    if hash_file(dll) != trial["dll_sha256"] or any(hash_file(path) != hashes[slot] for slot, path in slots.items()):
+    slot_hashes_after = {slot: hash_file(path) for slot, path in slots.items()}
+    mod_hash_after = hash_file(dll)
+    savecheck_hash_after = hash_file(savecheck_dll)
+    if mod_hash_after != identity["mod_dll_sha256"] or slot_hashes_after != hashes or savecheck_hash_after != identity["savecheck_sha256"]:
         raise ValueError(f"Input changed during {label}")
+    if rounds > 1:
+        identity.update(rounds=rounds, empty_control=empty_control, sparse_checks=sparse_checks,
+                        save_sha256_after=slot_hashes_after, mod_dll_sha256_after=mod_hash_after,
+                        savecheck_sha256_after=savecheck_hash_after)
+        identity_path.write_text(json.dumps(identity, indent=2) + "\n", encoding="utf-8")
     print(f"Verified {label}", flush=True)
+    if insights and (not trace.is_file() or trace.stat().st_size == 0):
+        raise RuntimeError(f"Game completed the route but did not write a trace: {trace}")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "Saved/F10-memory")
     parser.add_argument("--plugin", type=Path, help="SaveCheck descriptor, defaults to SaveCheck in the output directory")
-    parser.add_argument("--pilot", action="store_true", help="Run two active cycles with ISM")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--pilot", action="store_true", help="Run two active cycles with ISM")
+    modes.add_argument("--insights-pilot", action="store_true", help="Probe Memory Insights in the F08 Shipping client")
+    modes.add_argument("--reuse", action="store_true", help="Run both five-round memory reuse series")
+    modes.add_argument("--reuse-pilot", action="store_true", help="Run two short rounds with the empty and ISM workloads")
     parser.add_argument("--diagnostic", action="store_true", help="Repeat the four variants with OS region classification")
     parser.add_argument("--continue-series", action="store_true", help="Reuse previously verified runs in this output directory")
     args = parser.parse_args()
     output = args.output.resolve()
     plugin = (args.plugin or output / "SaveCheck/SaveCheck.uplugin").resolve()
+    if args.insights_pilot:
+        run(output, plugin, "shipping-insights-pilot", False, "idle", 2, insights=True)
+        return
     if args.pilot:
         run(output, plugin, "pilot", True, "cycle", 2)
+        return
+    if args.reuse or args.reuse_pilot:
+        cases = ((0, "control"), (0, "ism")) if args.reuse_pilot else REUSE_ORDER
+        cycles, rounds = (2, 2) if args.reuse_pilot else (30, 5)
+        for series, variant in cases:
+            label = f"reuse-{'pilot' if args.reuse_pilot else f's{series}'}-{variant}"
+            marker = output / f"{label}.verified"
+            if args.continue_series and marker.is_file():
+                continue
+            run(output, plugin, label, variant == "ism", "idle", cycles, rounds=rounds,
+                empty_control=variant == "control", sparse_checks=True)
+            marker.touch(exist_ok=False)
+            time.sleep(3)
         return
     for series, ism, route in (ORDER[:4] if args.diagnostic else ORDER):
         prefix = "diagnostic" if args.diagnostic else f"s{series}"

@@ -26,7 +26,7 @@ FTickerDelegate MakePlacementConflictCheck(FString Directory);
 FTickerDelegate MakePlacementPerformanceCheck(FString Directory, int32 Plans);
 FTickerDelegate MakeProjectionPerformanceCheck(FString Output, int32 ExpectedPlans, double WindowSeconds,
     int32 Cycles, FString ReloadSlot, bool bCaptureFrames);
-FTickerDelegate MakeProjectionMemoryCheck(double SettleSeconds, double WindowSeconds, int32 Cycles, bool bTrace, bool bIdle);
+FTickerDelegate MakeProjectionMemoryCheck(double SettleSeconds, double WindowSeconds, int32 Cycles, int32 Rounds, bool bTrace, bool bIdle);
 FTickerDelegate MakeProjectionFixture(FString Slot, int32 Count);
 FTickerDelegate MakeRoofStackCheck(FString Directory, bool bPlanningControls = false);
 
@@ -101,10 +101,12 @@ public:
         {
             double SettleSeconds = 4.0, WindowSeconds = 3.0;
             int32 Cycles = 5;
+            int32 Rounds = 1;
             FString Route;
             FParse::Value(FCommandLine::Get(), TEXT("SaveCheckMemorySettle="), SettleSeconds);
             FParse::Value(FCommandLine::Get(), TEXT("SaveCheckMemoryWindow="), WindowSeconds);
             FParse::Value(FCommandLine::Get(), TEXT("SaveCheckMemoryCycles="), Cycles);
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckMemoryRounds="), Rounds);
             const bool bTrace = FParse::Value(FCommandLine::Get(), TEXT("SaveCheckMemoryRoute="), Route);
             if (bTrace && Route != TEXT("cycle") && Route != TEXT("idle"))
             {
@@ -112,10 +114,16 @@ public:
                 FPlatformMisc::RequestExit(false);
                 return;
             }
+            if (Rounds < 1 || Rounds > 5 || (Rounds > 1 && Route != TEXT("idle")))
+            {
+                UE_LOG(LogSaveCheck, Error, TEXT("SaveCheckMemoryRounds must be 1–5 and requires the idle route for repeats"));
+                FPlatformMisc::RequestExit(false);
+                return;
+            }
             const double MinSeconds = bTrace ? 0.5 : 1.0;
             Handle = FTSTicker::GetCoreTicker().AddTicker(MakeProjectionMemoryCheck(
                 FMath::Clamp(SettleSeconds, MinSeconds, 60.0), FMath::Clamp(WindowSeconds, MinSeconds, 60.0),
-                FMath::Clamp(Cycles, 1, 120), bTrace, Route == TEXT("idle")), 0.10f);
+                FMath::Clamp(Cycles, 1, 120), Rounds, bTrace, Route == TEXT("idle")), 0.10f);
             return;
         }
         FString ProjectionOutput;
