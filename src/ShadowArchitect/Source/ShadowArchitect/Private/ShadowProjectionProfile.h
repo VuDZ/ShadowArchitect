@@ -17,6 +17,8 @@ public:
     uint64 MaterialCycles = 0;
     uint64 ComponentCycles = 0;
     uint64 RegisterCycles = 0;
+    uint64 ReuseCycles = 0;
+    int32 ReusedMeshes = 0;
     int32 ProxyParts = 0;
 
 private:

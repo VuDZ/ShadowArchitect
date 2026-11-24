@@ -1,0 +1,12 @@
+case,kind,offset,frame,mono_s,frame_ms,rhi_draws_gpu0,gpu0_ms,render_thread_ms,commit_mib,phase,run,pass,mode,serial,op,from,to,plans,actors,meshes
+F05-100-r3-on,frame,-2,6164,17017613.699218,8.2621,10071,4.6457,5.9,5316.93,steady,1,0,Ghost,,,,,,,
+F05-100-r3-on,frame,-1,6165,17017613.707544,8.3253,10270,4.3521,5.6262,-1.0,switch,1,1,Wireframe,,,,,,,
+F05-100-r3-on,operation_phase,0,6166,17017613.707746,,,,,5316.93,before,,,,9,cycle,Ghost,Wireframe,100,100,3800
+F05-100-r3-on,operation_phase,0,6166,17017613.741939,,,,,5325.32,coexist,,,,9,cycle,Ghost,Wireframe,100,100,7600
+F05-100-r3-on,operation_phase,0,6166,17017613.77128,,,,,5326.645,after,,,,9,cycle,Ghost,Wireframe,100,100,3800
+F05-100-r3-on,frame,0,6166,17017613.776915,69.3715,10214,4.4662,5.3538,-1.0,switch,1,1,Wireframe,,,,,,,
+F05-100-r3-on,frame,1,6167,17017613.790199,13.2839,10214,4.4662,19.9203,-1.0,switch,1,1,Wireframe,,,,,,,
+F05-100-r3-on,frame,2,6168,17017613.797989,7.7895,10134,4.717,19.9203,-1.0,switch,1,1,Wireframe,,,,,,,
+F05-100-r3-on,frame,3,6169,17017613.804896,6.9072,10617,4.7366,5.0069,5323.832,switch,1,1,Wireframe,,,,,,,
+F05-100-r3-on,frame,4,6170,17017613.811745,6.8494,10161,4.453,4.9318,-1.0,settle,1,1,Wireframe,,,,,,,
+F05-100-r3-on,frame,5,6171,17017613.818717,6.9714,10169,4.6341,5.0953,-1.0,settle,1,1,Wireframe,,,,,,,

@@ -3,6 +3,7 @@
 #include "ShadowBlueprintSource.h"
 #include "Command/CommandSender.h"
 #include "Components/ActorComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "Equipment/FGBuildGunBuild.h"
@@ -12,7 +13,10 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerController.h"
 #include "Hologram/FGBlueprintHologram.h"
+#include "HAL/PlatformTime.h"
 #include "Materials/MaterialInterface.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Modules/ModuleManager.h"
 #include "Subsystem/SubsystemActorManager.h"
 #include "TimerManager.h"
@@ -274,6 +278,16 @@ void AShadowPlanSubsystem::CycleView()
     const auto NextMode = static_cast<EShadowView>(NextIndex);
     FShadowProjectionProfile Profile(TEXT("cycle"), ViewMode, NextMode, Plans.Num(), Views);
 
+    static const bool bReuseWireframe = FParse::Param(FCommandLine::Get(), TEXT("ShadowReuseWireframe"));
+    if (bReuseWireframe && ViewMode == EShadowView::Ghost)
+    {
+        const bool bSuccess = ReuseProjectionMeshesForWireframe(Profile);
+        if (bSuccess) ViewMode = NextMode;
+        Profile.Finish(ViewMode, bSuccess, bSuccess ? 0 : 1);
+        Notify(bSuccess ? TEXT("Plan view: Wireframe.") : TEXT("Could not display plans in Wireframe view."));
+        return;
+    }
+
     struct FViewChange
     {
         AShadowProjection* Actor;
@@ -306,6 +320,43 @@ void AShadowPlanSubsystem::CycleView()
     ViewMode = NextMode;
     Profile.Finish(ViewMode, true, 0);
     Notify(FString::Printf(TEXT("Plan view: %s."), ModeNames[NextIndex]));
+}
+
+bool AShadowPlanSubsystem::ReuseProjectionMeshesForWireframe(FShadowProjectionProfile& Profile)
+{
+    if (Views.IsEmpty()) return true;
+    UMaterialInterface* Wireframe = nullptr;
+    UMaterialInterface* BoxEdges = nullptr;
+    if (!LoadShadowWireframeMaterials(Wireframe, BoxEdges, Profile.Enabled())) return false;
+    static bool bRejectSecond = FParse::Param(FCommandLine::Get(), TEXT("ShadowTestRejectSecondWireframePlan"));
+    TArray<FShadowWireframeChange> Changes;
+    for (const auto& Plan : Plans)
+    {
+        const auto* View = Views.FindRef(Plan.Id).Get();
+        if (!View) continue;
+        auto* ProxyMaterial = BoxEdges;
+        if (bRejectSecond && !Changes.IsEmpty())
+        {
+            bRejectSecond = false;
+            ProxyMaterial = nullptr;
+        }
+        if (!View->PrepareWireframe(Wireframe, ProxyMaterial, Changes)) return false;
+    }
+
+    Profile.Sample(TEXT("prepared"));
+    const uint64 Start = Profile.Enabled() ? FPlatformTime::Cycles64() : 0;
+    for (const auto& Change : Changes)
+    {
+        Change.Component->bDisallowNanite = Change.bDisallowNanite;
+        for (int32 Slot = 0; Slot < Change.Slots; ++Slot)
+            Change.Component->SetMaterial(Slot, Change.Material);
+    }
+    if (Profile.Enabled())
+    {
+        Profile.ReuseCycles = FPlatformTime::Cycles64() - Start;
+        Profile.ReusedMeshes = Changes.Num();
+    }
+    return true;
 }
 
 void AShadowPlanSubsystem::ClearViews()

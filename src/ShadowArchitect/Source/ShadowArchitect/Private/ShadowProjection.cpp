@@ -11,6 +11,8 @@
 
 namespace
 {
+const FName ShadowProxyMeshTag(TEXT("ShadowArchitect.ProxyMesh"));
+
 bool HasValidPartGeometry(const FShadowPart& Part)
 {
     return Part.InPlan.IsValid() && !Part.BoundsCenter.ContainsNaN()
@@ -92,10 +94,11 @@ void AShadowProjection::Tick(float DeltaSeconds)
 }
 
 void AShadowProjection::AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative,
-    FShadowProjectionProfile* Profile)
+    FShadowProjectionProfile* Profile, bool bProxy)
 {
     const uint64 Start = Profile ? FPlatformTime::Cycles64() : 0;
     UStaticMeshComponent* Mesh = NewObject<UStaticMeshComponent>(this, NAME_None, RF_Transient);
+    if (bProxy) Mesh->ComponentTags.Add(ShadowProxyMeshTag);
     Mesh->SetupAttachment(GetRootComponent());
     Mesh->SetMobility(EComponentMobility::Movable);
     Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -146,16 +149,42 @@ bool AShadowProjection::Build(const FShadowPlacement& Plan, UStaticMesh& Cube, U
     return BuildParts(Plan, Cube, Material, Material, Profile);
 }
 
-bool AShadowProjection::BuildWireframe(const FShadowPlacement& Plan, UStaticMesh& Cube, FShadowProjectionProfile* Profile)
+bool LoadShadowWireframeMaterials(UMaterialInterface*& Wireframe, UMaterialInterface*& BoxEdges, FShadowProjectionProfile* Profile)
 {
     check(IsInGameThread());
     const uint64 Start = Profile ? FPlatformTime::Cycles64() : 0;
-    auto* Wireframe = LoadObject<UMaterialInterface>(nullptr,
+    Wireframe = LoadObject<UMaterialInterface>(nullptr,
         TEXT("/ShadowArchitect/Materials/M_ShadowWireframe.M_ShadowWireframe"));
-    auto* BoxEdges = LoadObject<UMaterialInterface>(nullptr,
+    BoxEdges = LoadObject<UMaterialInterface>(nullptr,
         TEXT("/ShadowArchitect/Materials/M_ShadowBoxEdges.M_ShadowBoxEdges"));
     if (Profile) Profile->MaterialCycles += FPlatformTime::Cycles64() - Start;
-    return Wireframe && BoxEdges && BuildParts(Plan, Cube, *Wireframe, *BoxEdges, Profile);
+    return IsValid(Wireframe) && IsValid(BoxEdges);
+}
+
+bool AShadowProjection::BuildWireframe(const FShadowPlacement& Plan, UStaticMesh& Cube, FShadowProjectionProfile* Profile)
+{
+    UMaterialInterface* Wireframe = nullptr;
+    UMaterialInterface* BoxEdges = nullptr;
+    return LoadShadowWireframeMaterials(Wireframe, BoxEdges, Profile)
+        && BuildParts(Plan, Cube, *Wireframe, *BoxEdges, Profile);
+}
+
+bool AShadowProjection::PrepareWireframe(UMaterialInterface* Wireframe, UMaterialInterface* BoxEdges,
+    TArray<FShadowWireframeChange>& Changes) const
+{
+    if (!IsValid(Wireframe) || !IsValid(BoxEdges) || GetInstanceComponents().IsEmpty()) return false;
+    const auto* WireframeBase = Wireframe->GetMaterial();
+    const auto* BoxBase = BoxEdges->GetMaterial();
+    if (!WireframeBase || !BoxBase) return false;
+    for (const auto& Component : GetInstanceComponents())
+    {
+        auto* Mesh = Cast<UStaticMeshComponent>(Component);
+        if (!IsValid(Mesh) || !Mesh->IsRegistered() || !IsValid(Mesh->GetStaticMesh())) return false;
+        const bool bProxy = Mesh->ComponentHasTag(ShadowProxyMeshTag);
+        Changes.Add({ Mesh, bProxy ? BoxEdges : Wireframe, FMath::Max(1, Mesh->GetNumMaterials()),
+            bProxy ? bool(BoxBase->Wireframe) : bool(WireframeBase->Wireframe) });
+    }
+    return true;
 }
 
 bool AShadowProjection::BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cube,
@@ -183,7 +212,7 @@ bool AShadowProjection::BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cu
             const FVector Scale = Part.BoundsSize / CubeSize;
             const FTransform Box(FQuat::Identity, Part.BoundsCenter - CubeBounds.GetCenter() * Scale, Scale);
             if (Profile) ++Profile->ProxyParts;
-            AddMesh(Cube, ProxyMaterial, Box * Part.InPlan, Profile);
+            AddMesh(Cube, ProxyMaterial, Box * Part.InPlan, Profile, true);
         }
         else
         {

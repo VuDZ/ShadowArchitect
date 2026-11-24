@@ -4,8 +4,13 @@
 #include "Components/MeshComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "FGBlueprintSubsystem.h"
+#include "HAL/PlatformTime.h"
 #include "Hologram/FGBlueprintHologram.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Misc/CommandLine.h"
+#include "Misc/CoreDelegates.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Parse.h"
 #include "Styling/CoreStyle.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Widgets/Layout/SBorder.h"
@@ -15,6 +20,8 @@
 
 #define LOCTEXT_NAMESPACE "ShadowPlacementFeedback"
 
+DEFINE_LOG_CATEGORY_STATIC(LogShadowPlacementProfile, Log, All);
+
 namespace
 {
 constexpr double ContactTolerance = 0.1;
@@ -22,6 +29,85 @@ const FLinearColor ClearColor(0.07f, 1.0f, 0.24f);
 const FLinearColor PossibleColor(1.0f, 0.57f, 0.06f);
 const FLinearColor ConflictColor(1.0f, 0.09f, 0.19f);
 const FLinearColor OtherPartColor(1.0f, 0.70f, 0.11f);
+
+struct FPlacementProfileSample
+{
+    uint64 Frame = 0;
+    double Ms = 0;
+    int32 Plans = 0;
+    int32 Candidates = 0;
+    int32 PartPairs = 0;
+    int32 ConflictingPlans = 0;
+    int32 PlacedParts = 0;
+    int32 PreviewParts = 0;
+    bool bPreview = false;
+    bool bSupport = false;
+};
+
+class FPlacementProfile
+{
+public:
+    static FPlacementProfile* Get()
+    {
+        static TUniquePtr<FPlacementProfile> Capture = []
+        {
+            FString Path;
+            if (!FParse::Value(FCommandLine::Get(), TEXT("ShadowPlacementProfile="), Path) || Path.IsEmpty())
+                return TUniquePtr<FPlacementProfile>();
+            return MakeUnique<FPlacementProfile>(MoveTemp(Path));
+        }();
+        return Capture.Get();
+    }
+
+    explicit FPlacementProfile(FString Output) : Path(MoveTemp(Output))
+    {
+        Samples.Reserve(32 * 1024);
+        ExitHandle = FCoreDelegates::OnPreExit.AddRaw(this, &FPlacementProfile::Write);
+    }
+
+    ~FPlacementProfile() { FCoreDelegates::OnPreExit.Remove(ExitHandle); }
+
+    void Add(const FPlacementProfileSample& Sample)
+    {
+        if (Samples.Num() < 256 * 1024) Samples.Add(Sample);
+        else ++Dropped;
+    }
+
+private:
+    void Write() const
+    {
+        FString Csv = TEXT("frame,feedback_ms,plans_examined,candidates,part_pairs,conflicting_plans,outlined_placed_parts,outlined_preview_parts,preview,support\n");
+        Csv.Reserve(128 + Samples.Num() * 60);
+        for (const auto& S : Samples)
+            Csv += FString::Printf(TEXT("%llu,%.6f,%d,%d,%d,%d,%d,%d,%d,%d\n"),
+                static_cast<unsigned long long>(S.Frame), S.Ms, S.Plans, S.Candidates, S.PartPairs, S.ConflictingPlans,
+                S.PlacedParts, S.PreviewParts, int32(S.bPreview), int32(S.bSupport));
+        const bool bSaved = FFileHelper::SaveStringToFile(Csv, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+        UE_LOG(LogShadowPlacementProfile, Display, TEXT("file=%s samples=%d dropped=%d written=%d"),
+            *Path, Samples.Num(), Dropped, bSaved);
+    }
+
+    FString Path;
+    FDelegateHandle ExitHandle;
+    TArray<FPlacementProfileSample> Samples;
+    int32 Dropped = 0;
+};
+
+struct FPlacementProfileScope
+{
+    FPlacementProfile* Capture = FPlacementProfile::Get();
+    uint64 Start = Capture ? FPlatformTime::Cycles64() : 0;
+    FPlacementProfileSample Sample;
+    bool bLocalWorld = false;
+
+    ~FPlacementProfileScope()
+    {
+        if (!Capture || !bLocalWorld) return;
+        Sample.Ms = FPlatformTime::ToMilliseconds64(FPlatformTime::Cycles64() - Start);
+        Sample.Frame = GFrameCounter;
+        Capture->Add(Sample);
+    }
+};
 
 struct FPlacementPartBox
 {
@@ -219,7 +305,13 @@ void AShadowPlanSubsystem::Tick(float DeltaSeconds)
 
 void AShadowPlanSubsystem::RefreshPlacementFeedback()
 {
+    FPlacementProfileScope Profile;
     auto* PC = GetWorld()->GetFirstPlayerController();
+    if (Profile.Capture)
+    {
+        Profile.bLocalWorld = PC && PC->IsLocalController();
+        Profile.Sample.bSupport = bUsePlanSupport;
+    }
     auto* Player = PC ? PC->GetLocalPlayer() : nullptr;
     auto* Viewport = GetWorld()->GetGameViewport();
     auto* Preview = Cast<AFGBlueprintHologram>(ActivePreview());
@@ -229,6 +321,7 @@ void AShadowPlanSubsystem::RefreshPlacementFeedback()
         PlacementFeedback.Reset();
         return;
     }
+    if (Profile.Capture) Profile.Sample.bPreview = true;
 
     if (!PlacementFeedback)
         PlacementFeedback = MakeShared<FShadowPlacementFeedback>(*PC, *Player, *Viewport,
@@ -251,6 +344,7 @@ void AShadowPlanSubsystem::RefreshPlacementFeedback()
     TArray<FString> Conflicts, PossibleConflicts;
     if (bVisible && PreviewBounds.IsValid)
     {
+        if (Profile.Capture) Profile.Sample.Plans = Plans.Num();
         TArray<FPlacementPartBox> PreviewBoxes;
         TSet<int32> ConflictingPreviewParts;
         for (const auto& Plan : Plans)
@@ -258,6 +352,7 @@ void AShadowPlanSubsystem::RefreshPlacementFeedback()
             const auto* View = Views.FindRef(Plan.Id).Get();
             if (!View || View->IsHidden() || !PreviewBounds.Intersect(View->GetLocalPlanBounds().TransformBy(Plan.Transform)))
                 continue;
+            if (Profile.Capture) ++Profile.Sample.Candidates;
             if (Feedback.Parts.IsEmpty() || Plan.Parts.IsEmpty())
             {
                 PossibleConflicts.AddUnique(Plan.BlueprintId);
@@ -267,6 +362,8 @@ void AShadowPlanSubsystem::RefreshPlacementFeedback()
                 for (const auto& Part : Feedback.Parts)
                     PreviewBoxes.Add(FPlacementPartBox::Make(Part, Pose));
 
+            if (Profile.Capture) Profile.Sample.PartPairs += PreviewBoxes.Num() * Plan.Parts.Num();
+            bool bAnyPartConflicts = false;
             for (const auto& Part : Plan.Parts)
             {
                 const auto PlacedBox = FPlacementPartBox::Make(Part, Plan.Transform);
@@ -289,11 +386,15 @@ void AShadowPlanSubsystem::RefreshPlacementFeedback()
                 }
                 if (bPartConflicts)
                 {
+                    bAnyPartConflicts = true;
+                    if (Profile.Capture) ++Profile.Sample.PlacedParts;
                     Conflicts.AddUnique(Plan.BlueprintId);
                     OutlinePart(Feedback.Lines, PlacedBox, OtherPartColor);
                 }
             }
+            if (Profile.Capture && bAnyPartConflicts) ++Profile.Sample.ConflictingPlans;
         }
+        if (Profile.Capture) Profile.Sample.PreviewParts = ConflictingPreviewParts.Num();
         for (const int32 Index : ConflictingPreviewParts)
             OutlinePart(Feedback.Lines, PreviewBoxes[Index], ConflictColor);
     }

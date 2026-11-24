@@ -23,6 +23,7 @@
 #include "Interfaces/IPluginManager.h"
 #include "Hologram/FGBlueprintHologram.h"
 #include "InputKeyEventArgs.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/Paths.h"
 #include "Misc/CommandLine.h"
@@ -117,6 +118,16 @@ bool Snapshot(UWorld& World, int32 Mode, int32 Count, bool bVisible, TArray<FPro
             const FName Name = Material->GetFName();
             if (Mode == 1 ? (Name != FName(TEXT("M_ShadowWireframe")) && Name != FName(TEXT("M_ShadowBoxEdges")))
                 : Name != FName(TEXT("Hologram_Blue_Inst"))) return false;
+            if (Mode == 1 && FParse::Param(FCommandLine::Get(), TEXT("ShadowReuseWireframe")))
+            {
+                const bool bProxy = Mesh->ComponentHasTag(FName(TEXT("ShadowArchitect.ProxyMesh")));
+                const FName Expected(bProxy ? TEXT("M_ShadowBoxEdges") : TEXT("M_ShadowWireframe"));
+                if (Name != Expected || !Material->GetMaterial()
+                    || (bProxy && Mesh->GetStaticMesh()->GetFName() != FName(TEXT("Cube")))
+                    || Mesh->IsDisallowNanite() != bool(Material->GetMaterial()->Wireframe)) return false;
+            }
+            for (int32 Slot = 1; Slot < Mesh->GetNumMaterials(); ++Slot)
+                if (Mesh->GetMaterial(Slot) != Material) return false;
             if (Mode == 2 && Mesh->GetStaticMesh()->GetFName() != FName(TEXT("Cube"))) return false;
             State.Meshes.Add(Mesh);
             State.Geometry.Add(Mesh->GetStaticMesh()->GetPathName() + TEXT(" ") + Mesh->GetRelativeTransform().ToString());
@@ -134,7 +145,7 @@ void SendKey(APlayerController& PC, FKey Key, EInputEvent Event)
 
 struct FViewProbe
 {
-    enum class EStep { Ready, LegacySelect, Before, Cycle, After, Wireframe, Blueprint, Place, Hide, Footprint, Show,
+    enum class EStep { Ready, LegacySelect, Before, Cycle, After, Wireframe, WireframeFrame, Blueprint, Place, Hide, Footprint, Show,
         UnmodifiedQ, CloseBuildMenu, OpenForRebind, OldPlacement, ReboundPlacement, ChatText, ChatCommand };
     EStep Step = EStep::Ready;
     FString OutputDir;
@@ -147,6 +158,8 @@ struct FViewProbe
     bool bPressed = false;
     bool bCustomKeys = false;
     bool bLegacyKeys = false;
+    bool bReuseWireframe = false;
+    bool bCheckWireframeRejection = false;
     FString CtrlQMode;
     TOptional<FVector> BuildTarget;
 
@@ -404,8 +417,17 @@ struct FViewProbe
             break;
         case EStep::Cycle:
             if (!Stroke(Player, ViewInput())) break;
+            if (bCheckWireframeRejection)
+            {
+                bCheckWireframeRejection = false;
+                if (!Confirm(World, TEXT("wireframe-prepare-rejected"), 0, 2, true))
+                    return Finish(false, TEXT("rejected preparation changed Ghost components"));
+                UE_LOG(LogSaveCheckViews, Display, TEXT("wireframe_prepare_rejected=1 original_components=1 original_materials=1"));
+                break;
+            }
             ++Cycles;
-            if (!Confirm(World, *ViewInput().GetInputText().ToString(), Cycles % 3, 2, true, true)) return Finish(false, TEXT("cycle"));
+            if (!Confirm(World, *ViewInput().GetInputText().ToString(), Cycles % 3, 2, true,
+                !bReuseWireframe || Cycles % 3 != 1)) return Finish(false, TEXT("cycle"));
             if (Cycles == 9)
             {
                 for (int32 Index = 0; Index < Initial.Num(); ++Index)
@@ -422,8 +444,28 @@ struct FViewProbe
             break;
         case EStep::Wireframe:
             if (!Stroke(Player, ViewInput())) break;
-            if (!Confirm(World, *ViewInput().GetInputText().ToString(), 1, 2, true, true) || !OpenPreview(World, Player)) return Finish(false, TEXT("open Blueprint"));
-            SetStep(EStep::Blueprint);
+            if (!Confirm(World, *ViewInput().GetInputText().ToString(), 1, 2, true, !bReuseWireframe))
+                return Finish(false, TEXT("Wireframe snapshot"));
+            if (bReuseWireframe)
+            {
+                int32 ProxyMeshes = 0;
+                int32 RegularMeshes = 0;
+                for (const auto& State : Previous)
+                    for (const auto& Mesh : State.Meshes)
+                        if (Mesh->ComponentHasTag(FName(TEXT("ShadowArchitect.ProxyMesh")))) ++ProxyMeshes;
+                        else ++RegularMeshes;
+                if (ProxyMeshes == 0 || RegularMeshes == 0) return Finish(false, TEXT("missing Wireframe mesh role"));
+                UE_LOG(LogSaveCheckViews, Display, TEXT("wireframe_identity=1 regular_meshes=%d proxy_meshes=%d"),
+                    RegularMeshes, ProxyMeshes);
+            }
+            SetStep(EStep::WireframeFrame);
+            break;
+        case EStep::WireframeFrame:
+            if (Frame(TEXT("Wireframe.png")))
+            {
+                if (!OpenPreview(World, Player)) return Finish(false, TEXT("open Blueprint"));
+                SetStep(EStep::Blueprint);
+            }
             break;
         case EStep::Blueprint:
             if (PreviewReady(Player)) SetStep(EStep::Place);
@@ -533,6 +575,9 @@ FTickerDelegate MakeViewCheck(FString OutputDir, bool bCustomKeys)
     Probe.OutputDir = MoveTemp(OutputDir);
     Probe.bCustomKeys = bCustomKeys;
     Probe.bLegacyKeys = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckLegacyKeys"));
+    Probe.bReuseWireframe = FParse::Param(FCommandLine::Get(), TEXT("ShadowReuseWireframe"));
+    Probe.bCheckWireframeRejection = Probe.bReuseWireframe
+        && FParse::Param(FCommandLine::Get(), TEXT("ShadowTestRejectSecondWireframePlan"));
     FParse::Value(FCommandLine::Get(), TEXT("SaveCheckViewCtrlQ="), Probe.CtrlQMode);
     return FTickerDelegate::CreateLambda([Probe = MoveTemp(Probe)](float) mutable { return Probe.Tick(); });
 }

@@ -22,6 +22,7 @@ class UFGBuildGunStateBuild;
 class UFGBlueprintDescriptor;
 class UMaterialInterface;
 class UStaticMesh;
+class UStaticMeshComponent;
 class UTextRenderComponent;
 
 USTRUCT()
@@ -78,6 +79,16 @@ enum class EShadowView : uint8
     Footprint
 };
 
+struct FShadowWireframeChange
+{
+    UStaticMeshComponent* Component;
+    UMaterialInterface* Material;
+    int32 Slots;
+    bool bDisallowNanite;
+};
+
+bool LoadShadowWireframeMaterials(UMaterialInterface*& Wireframe, UMaterialInterface*& BoxEdges, FShadowProjectionProfile* Profile);
+
 UCLASS(Transient, NotPlaceable)
 class AShadowProjection : public AActor
 {
@@ -87,6 +98,7 @@ public:
     bool Build(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material, FShadowProjectionProfile* Profile = nullptr);
     bool BuildFootprint(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material, FShadowProjectionProfile* Profile = nullptr);
     bool BuildWireframe(const FShadowPlacement& Plan, UStaticMesh& Cube, FShadowProjectionProfile* Profile = nullptr);
+    bool PrepareWireframe(UMaterialInterface* Wireframe, UMaterialInterface* BoxEdges, TArray<FShadowWireframeChange>& Changes) const;
     const FBox& GetLocalPlanBounds() const { return LocalPlanBounds; }
     void SetSelectionMarker(const FBox& Footprint);
 protected:
@@ -96,7 +108,8 @@ private:
     FBox LocalPlanBounds{ForceInit};
     bool BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cube,
         UMaterialInterface& MeshMaterial, UMaterialInterface& ProxyMaterial, FShadowProjectionProfile* Profile);
-    void AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative, FShadowProjectionProfile* Profile);
+    void AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative,
+        FShadowProjectionProfile* Profile, bool bProxy = false);
 };
 
 UCLASS()
@@ -184,6 +197,7 @@ private:
     void DeletePlan(const FGuid& Id);
     void ToggleVisibility();
     void CycleView();
+    bool ReuseProjectionMeshesForWireframe(FShadowProjectionProfile& Profile);
     double TracePlanAim(const APlayerController& Player, double Range, FVector& Start, FVector& Delta) const;
     FGuid FindPlanUnderCrosshair() const;
     void ToggleAlignmentGuide(const FGuid& Id);

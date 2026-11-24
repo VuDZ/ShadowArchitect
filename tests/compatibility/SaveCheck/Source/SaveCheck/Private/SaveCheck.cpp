@@ -23,7 +23,9 @@ FTickerDelegate MakeEditingCheck(FString Mode, FString Slot, FString MoveSlot, F
 FTickerDelegate MakeAlignmentCheck(FString Frames, bool bGuide);
 FTickerDelegate MakePlacementSupportCheck(FString Directory, FString OutputSlot, bool bReload);
 FTickerDelegate MakePlacementConflictCheck(FString Directory);
-FTickerDelegate MakeProjectionPerformanceCheck(FString Output, int32 ExpectedPlans, double WindowSeconds, int32 Cycles, FString ReloadSlot);
+FTickerDelegate MakePlacementPerformanceCheck(FString Directory, int32 Plans);
+FTickerDelegate MakeProjectionPerformanceCheck(FString Output, int32 ExpectedPlans, double WindowSeconds,
+    int32 Cycles, FString ReloadSlot, bool bCaptureFrames);
 FTickerDelegate MakeProjectionFixture(FString Slot, int32 Count);
 FTickerDelegate MakeRoofStackCheck(FString Directory, bool bPlanningControls = false);
 
@@ -105,8 +107,9 @@ public:
             FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionSeconds="), Seconds);
             FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionCycles="), Cycles);
             FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionReload="), ReloadSlot);
+            const bool bCaptureFrames = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckProjectionFrames"));
             Handle = FTSTicker::GetCoreTicker().AddTicker(MakeProjectionPerformanceCheck(MoveTemp(ProjectionOutput),
-                Plans, FMath::Clamp(Seconds, 1.0, 120.0), FMath::Clamp(Cycles, 1, 3), MoveTemp(ReloadSlot)), 0.1f);
+                Plans, FMath::Clamp(Seconds, 1.0, 120.0), FMath::Clamp(Cycles, 1, 3), MoveTemp(ReloadSlot), bCaptureFrames), 0.1f);
             return;
         }
         if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionEmptySlot="), ProjectionOutput))
@@ -162,6 +165,15 @@ public:
         if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckPlacementConflict="), ConflictFrames))
         {
             Handle = FTSTicker::GetCoreTicker().AddTicker(MakePlacementConflictCheck(MoveTemp(ConflictFrames)), 0.12f);
+            return;
+        }
+        FString PlacementOutput;
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckPlacementPerformance="), PlacementOutput))
+        {
+            int32 Plans = 50;
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckPlacementPlans="), Plans);
+            Handle = FTSTicker::GetCoreTicker().AddTicker(
+                MakePlacementPerformanceCheck(MoveTemp(PlacementOutput), Plans));
             return;
         }
         FString AlignmentFrames;
