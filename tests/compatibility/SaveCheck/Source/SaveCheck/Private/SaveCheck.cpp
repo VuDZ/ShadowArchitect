@@ -26,6 +26,7 @@ FTickerDelegate MakePlacementConflictCheck(FString Directory);
 FTickerDelegate MakePlacementPerformanceCheck(FString Directory, int32 Plans);
 FTickerDelegate MakeProjectionPerformanceCheck(FString Output, int32 ExpectedPlans, double WindowSeconds,
     int32 Cycles, FString ReloadSlot, bool bCaptureFrames);
+FTickerDelegate MakeProjectionMemoryCheck(double SettleSeconds, double WindowSeconds, int32 Cycles, bool bTrace, bool bIdle);
 FTickerDelegate MakeProjectionFixture(FString Slot, int32 Count);
 FTickerDelegate MakeRoofStackCheck(FString Directory, bool bPlanningControls = false);
 
@@ -96,6 +97,27 @@ class FSaveCheck : public IModuleInterface
 public:
     virtual void StartupModule() override
     {
+        if (FParse::Param(FCommandLine::Get(), TEXT("SaveCheckProjectionMemory")))
+        {
+            double SettleSeconds = 4.0, WindowSeconds = 3.0;
+            int32 Cycles = 5;
+            FString Route;
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckMemorySettle="), SettleSeconds);
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckMemoryWindow="), WindowSeconds);
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckMemoryCycles="), Cycles);
+            const bool bTrace = FParse::Value(FCommandLine::Get(), TEXT("SaveCheckMemoryRoute="), Route);
+            if (bTrace && Route != TEXT("cycle") && Route != TEXT("idle"))
+            {
+                UE_LOG(LogSaveCheck, Error, TEXT("SaveCheckMemoryRoute must be cycle or idle"));
+                FPlatformMisc::RequestExit(false);
+                return;
+            }
+            const double MinSeconds = bTrace ? 0.5 : 1.0;
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeProjectionMemoryCheck(
+                FMath::Clamp(SettleSeconds, MinSeconds, 60.0), FMath::Clamp(WindowSeconds, MinSeconds, 60.0),
+                FMath::Clamp(Cycles, 1, 120), bTrace, Route == TEXT("idle")), 0.10f);
+            return;
+        }
         FString ProjectionOutput;
         if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionBench="), ProjectionOutput))
         {
