@@ -50,6 +50,9 @@ UStaticMesh* FShadowProjectionProfile::ResolveMesh(const TSoftObjectPtr<UStaticM
 void FShadowProjectionProfile::Sample(const TCHAR* Phase)
 {
     if (!bEnabled) return;
+    // The coexistence snapshot falls between building the new view and discarding the old one.
+    const bool bCoexist = FCString::Strcmp(Phase, TEXT("coexist")) == 0;
+    if (bCoexist) CoexistStartCycles = FPlatformTime::Cycles64();
     int32 Actors = 0;
     int32 Meshes = 0;
     for (const auto& Entry : Views)
@@ -68,6 +71,7 @@ void FShadowProjectionProfile::Sample(const TCHAR* Phase)
         TEXT("sample serial=%u op=%s phase=%s from=%s to=%s plans=%d actors=%d meshes=%d commit_mib=%.3f mono_s=%.6f frame=%llu"),
         Serial, Operation, Phase, ProfileViewName(From), ProfileViewName(To), Plans, Actors, Meshes,
         CommitMiB, FPlatformTime::Seconds(), static_cast<unsigned long long>(GFrameCounter));
+    if (bCoexist) CoexistEndCycles = FPlatformTime::Cycles64();
 }
 
 void FShadowProjectionProfile::Finish(EShadowView ActualMode, bool bSuccess, int32 FailedPlans)
@@ -75,13 +79,20 @@ void FShadowProjectionProfile::Finish(EShadowView ActualMode, bool bSuccess, int
     if (!bEnabled) return;
     const uint64 End = FPlatformTime::Cycles64();
     Sample(TEXT("after"));
+    const bool bRebuilt = CoexistEndCycles != 0;
+    const uint64 BuildCycles = bRebuilt ? CoexistStartCycles - StartCycles : 0;
+    const uint64 CoexistCycles = bRebuilt ? CoexistEndCycles - CoexistStartCycles : 0;
+    const uint64 CleanupCycles = bRebuilt ? End - CoexistEndCycles : 0;
     UE_LOG(LogShadowProjectionProfile, Display,
         TEXT("operation serial=%u op=%s from=%s to=%s actual=%s success=%d failed_plans=%d gt_ms=%.3f")
         TEXT(" mesh_ms=%.3f material_ms=%.3f component_ms=%.3f register_ms=%.3f mesh_requests=%d unique_meshes=%d")
-        TEXT(" resolved_before=%d missing_meshes=%d proxy_parts=%d sampled_peak_commit_mib=%.3f reused_meshes=%d reuse_ms=%.3f"),
+        TEXT(" resolved_before=%d missing_meshes=%d proxy_parts=%d sampled_peak_commit_mib=%.3f reused_meshes=%d reuse_ms=%.3f")
+        TEXT(" build_ms=%.3f coexist_sample_ms=%.3f cleanup_ms=%.3f"),
         Serial, Operation, ProfileViewName(From), ProfileViewName(To), ProfileViewName(ActualMode), bSuccess, FailedPlans,
         FPlatformTime::ToMilliseconds64(End - StartCycles), FPlatformTime::ToMilliseconds64(MeshCycles),
         FPlatformTime::ToMilliseconds64(MaterialCycles), FPlatformTime::ToMilliseconds64(ComponentCycles),
         FPlatformTime::ToMilliseconds64(RegisterCycles), MeshRequests, Paths.Num(), ResolvedBefore, MissingMeshes,
-        ProxyParts, MaxCommitMiB, ReusedMeshes, FPlatformTime::ToMilliseconds64(ReuseCycles));
+        ProxyParts, MaxCommitMiB, ReusedMeshes, FPlatformTime::ToMilliseconds64(ReuseCycles),
+        FPlatformTime::ToMilliseconds64(BuildCycles), FPlatformTime::ToMilliseconds64(CoexistCycles),
+        FPlatformTime::ToMilliseconds64(CleanupCycles));
 }

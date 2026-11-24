@@ -31,8 +31,11 @@
 #include "Layout/Children.h"
 #include "Layout/WidgetPath.h"
 #include "Materials/MaterialInterface.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "PlanMenuPointer.h"
+#include "ProjectionGeometry.h"
 #include "Resources/FGBuildingDescriptor.h"
 #include "UI/FGButtonWidget.h"
 #include "UI/FGGameUI.h"
@@ -891,7 +894,8 @@ struct FEditingProbe : FMenuProbe
     {
         Ready, Prepare, Place, CycleA, CycleB, AimA, PickA, PickB, Wall, Hide, HiddenPick, Show,
         MarkA, MarkB, MovePreview, Move, LegacyDismiss, InvalidMove, RefuseMove, SaveMove, AimDelete, DeleteSelect, Delete, DeleteAgain,
-        SaveFinal, ReloadPreview, ClearSelect, ClearAsk, ClearCancel, ClearAskAgain, ClearConfirm, ClearHide, ClearHidden, ClearShow
+        SaveFinal, ReloadPreview, ClearSelect, ClearAsk, ClearCancel, ClearAskAgain, ClearConfirm, ClearHide, ClearHidden, ClearShow,
+        PickRemaining
     };
 
     EEdit Edit = EEdit::Ready;
@@ -905,6 +909,8 @@ struct FEditingProbe : FMenuProbe
     int32 Placing = 0;
     bool bRotatedFoundation = false;
     bool bLegacyMoved = true;
+    bool bInstancedEditing = false;
+    TArray<FProjectionPiece> InitialInstancedGeometry[2];
     FVector Origin;
     FTransform Fixture;
     FTransform FoundationPose;
@@ -953,6 +959,32 @@ struct FEditingProbe : FMenuProbe
                 { return Record.Pose.Equals(View->GetActorTransform(), 0.1); })) return false;
         }
         return Count == Records.Num();
+    }
+
+    static bool ReadInstancedGeometry(UWorld& World, const FPlanMenuRecord& Plan, TArray<FProjectionPiece>& Pieces)
+    {
+        auto* Type = FindObject<UClass>(nullptr, TEXT("/Script/ShadowArchitect.ShadowProjection"));
+        if (!Type) return false;
+        for (TActorIterator<AActor> View(&World, Type); View; ++View)
+        {
+            if (!Plan.Pose.Equals(View->GetActorTransform(), 0.1)) continue;
+            bool bHasGroup = false;
+            for (const auto* Component : View->GetInstanceComponents())
+            {
+                const auto* Mesh = Cast<UStaticMeshComponent>(Component);
+                if (!Mesh || !AppendProjectionPieces(*Mesh, Pieces)) return false;
+                bHasGroup |= Mesh->IsA<UInstancedStaticMeshComponent>();
+            }
+            return bHasGroup;
+        }
+        return false;
+    }
+
+    bool MatchInstancedGeometry(UWorld& World, int32 Index) const
+    {
+        TArray<FProjectionPiece> Current;
+        return ReadInstancedGeometry(World, Initial[Index], Current)
+            && MatchProjectionPieces(InitialInstancedGeometry[Index], Current);
     }
 
     static bool CheckMarker(UWorld& World, const FPlanMenuRecord* Target, const TCHAR* Case)
@@ -1190,10 +1222,11 @@ struct FEditingProbe : FMenuProbe
     bool CheckRemaining(UWorld& World, int32 Index)
     {
         const auto Plans = ReadMenuPlans(World);
-        const bool bFoundation = Legacy() || ClearRun()
+        const bool bFoundation = Legacy() || ClearRun() || bInstancedEditing
             || (RealFoundation.IsValid() && RealFoundation->GetActorTransform().Equals(FoundationPose, 0.1));
         return Plans.Num() == 1 && Plans[0].Id == Initial[Index].Id && Plans[0].Pose.Equals(Initial[Index].Pose, 0.1)
-            && bFoundation && MatchViews(World, Plans, true);
+            && bFoundation && MatchViews(World, Plans, true)
+            && (!bInstancedEditing || MatchInstancedGeometry(World, Index));
     }
 
     bool RemapStockMap(APlayerController& Player)
@@ -1296,6 +1329,9 @@ struct FEditingProbe : FMenuProbe
                 break;
             }
             Character.UnequipBuildGun();
+            if (bInstancedEditing && (!ReadInstancedGeometry(World, Initial[0], InitialInstancedGeometry[0])
+                || !ReadInstancedGeometry(World, Initial[1], InitialInstancedGeometry[1])))
+                return End(false, TEXT("two instanced fixtures required"));
             FGuid Last;
             InitialSelectionMessages = SelectionMessages(World, Last);
             Report(World, TEXT("before"));
@@ -1478,6 +1514,14 @@ struct FEditingProbe : FMenuProbe
                 UE_LOG(LogSaveCheckEditing, Display, TEXT("after_legacy_M preview=%s hidden=%d disabled=%d"),
                     *GetNameSafe(Hologram), Hologram && Hologram->IsHidden(), Hologram && Hologram->IsDisabled());
             }
+            if (bInstancedEditing)
+            {
+                Initial[1] = ReadMenuPlans(World)[1];
+                if (!MatchInstancedGeometry(World, 0) || !MatchInstancedGeometry(World, 1))
+                    return End(false, TEXT("M changed instanced geometry"));
+                UE_LOG(LogSaveCheckEditing, Display, TEXT("ism_after_move target=%s neighbor=%s geometry_match=1"),
+                    *Initial[1].Id.ToString(), *Initial[0].Id.ToString());
+            }
             UE_LOG(LogSaveCheckEditing, Display, TEXT("input=Ctrl+Shift+M id=%s expected=%s moved=%d"),
                 *Initial[1].Id.ToString(), *MovePose.ToString(), bMoved);
             Report(World, TEXT("after_move"));
@@ -1524,7 +1568,11 @@ struct FEditingProbe : FMenuProbe
             break;
         case EEdit::AimDelete:
             if (Age < 5) break;
-            if (!AimForDelete(World, Player))
+            if (bInstancedEditing)
+            {
+                if (!LookEnd(Player, true)) return End(false, TEXT("moved copy camera"));
+            }
+            else if (!AimForDelete(World, Player))
             {
                 UE_LOG(LogSaveCheckEditing, Display, TEXT("deletion_ray_behind_A=no blocking foundation on test ray"));
                 if (!LookEnd(Player, false)) return End(false, TEXT("delete camera"));
@@ -1535,7 +1583,9 @@ struct FEditingProbe : FMenuProbe
         {
             const auto Input = Legacy() ? Cycle : PickInput;
             if (!Stroke(Player, Input)) break;
-            if (!CheckSelection(World, 0, Input, TEXT("delete target A"))) return End(false, TEXT("delete target"));
+            const int32 Target = bInstancedEditing ? 1 : 0;
+            if (!CheckSelection(World, Target, Input, bInstancedEditing ? TEXT("delete moved copy B") : TEXT("delete target A")))
+                return End(false, TEXT("delete target"));
             if (!Legacy() && !FramesDirectory.IsEmpty())
                 FScreenshotRequest::RequestScreenshot(FPaths::Combine(FramesDirectory, TEXT("E05-target.png")), true, false);
             Advance(EEdit::Delete);
@@ -1545,20 +1595,34 @@ struct FEditingProbe : FMenuProbe
         case EEdit::DeleteAgain:
         {
             if (!Stroke(Player, EKeys::K, true)) break;
-            if (!CheckRemaining(World, 1)) return End(false, TEXT("K changed B or the real foundation"));
+            const int32 Remaining = bInstancedEditing ? 0 : 1;
+            if (!CheckRemaining(World, Remaining)) return End(false, TEXT("K changed neighboring copy or foundation"));
             if (!Legacy() && !CheckMarker(World, nullptr, TEXT("deleted"))) return End(false, TEXT("stale selection marker"));
             const bool bRepeated = Edit == EEdit::DeleteAgain;
             UE_LOG(LogSaveCheckEditing, Display, TEXT("input=Ctrl+Shift+K repeat=%d target=%s remaining=%s foundation=%d"),
-                bRepeated, *Initial[0].Id.ToString(), *Initial[1].Id.ToString(), RealFoundation.IsValid());
+                bRepeated, *Initial[1 - Remaining].Id.ToString(), *Initial[Remaining].Id.ToString(), RealFoundation.IsValid());
             if (!bRepeated) Advance(EEdit::DeleteAgain);
             else
             {
                 Report(World, TEXT("after_delete"));
                 Saved.Reset();
-                Advance(EEdit::SaveFinal);
+                if (bInstancedEditing)
+                {
+                    if (!LookEnd(Player, false)) return End(false, TEXT("neighbor camera"));
+                    Advance(EEdit::PickRemaining);
+                }
+                else Advance(EEdit::SaveFinal);
             }
             break;
         }
+        case EEdit::PickRemaining:
+            if (!Stroke(Player, PickInput)) break;
+            if (!CheckSelection(World, 0, PickInput, TEXT("select surviving copy")) || !CheckRemaining(World, 0))
+                return End(false, TEXT("neighbor selection or geometry after deletion"));
+            UE_LOG(LogSaveCheckEditing, Display, TEXT("ism_after_delete neighbor=%s geometry_match=1 selected=1"),
+                *Initial[0].Id.ToString());
+            Advance(EEdit::SaveFinal);
+            break;
         case EEdit::ClearSelect:
             if (!Stroke(Player, Cycle)) break;
             if (!CheckSelection(World, 0, Cycle, TEXT("clear target selected"))) return End(false, TEXT("select A for clear"));
@@ -1614,6 +1678,7 @@ struct FEditingProbe : FMenuProbe
             if (Age == 1 && !FramesDirectory.IsEmpty() && !Legacy() && !ClearRun())
                 FScreenshotRequest::RequestScreenshot(FPaths::Combine(FramesDirectory, TEXT("E03-deleted.png")), true, false);
             if (Age < 4) break;
+            if (bInstancedEditing && Slot.IsEmpty()) return End(true, TEXT("instanced editing completed"));
             if (!Saved && !Write(World, Slot)) return End(false, TEXT("invalid or existing final slot"));
             if (Saved->IsSet()) return End(Saved->GetValue() && bLegacyMoved,
                 bLegacyMoved ? TEXT("editing and save completed") : TEXT("legacy J/V/K and save completed; M failed"));
@@ -1660,6 +1725,7 @@ FTickerDelegate MakeEditingCheck(FString Mode, FString Slot, FString MoveSlot, F
 {
     FEditingProbe Probe;
     Probe.Mode = MoveTemp(Mode);
+    Probe.bInstancedEditing = Probe.Mode == TEXT("edit") && FParse::Param(FCommandLine::Get(), TEXT("SaveCheckInstancedEditing"));
     Probe.Slot = MoveTemp(Slot);
     Probe.MoveSlot = MoveTemp(MoveSlot);
     Probe.ExpectedCount = ExpectedCount;

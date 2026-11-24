@@ -30,6 +30,8 @@ private:
     bool bEnabled;
     uint32 Serial = 0;
     uint64 StartCycles = 0;
+    uint64 CoexistStartCycles = 0;
+    uint64 CoexistEndCycles = 0;
     uint64 MeshCycles = 0;
     int32 MeshRequests = 0;
     int32 ResolvedBefore = 0;

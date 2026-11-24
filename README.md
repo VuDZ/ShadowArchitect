@@ -2,7 +2,9 @@
 
 Планирование фабрики в одиночной Satisfactory. Игрок выставляет пользовательский Blueprint штатным Build Gun и отдельной клавишей фиксирует его проекцию. Исходники рассчитаны на Windows Steam, Satisfactory **CL 520140**, SML **3.12.1** и UE **5.6.1-CSS**. [Совместимость в релизе SML](https://github.com/satisfactorymodding/SatisfactoryModLoader/releases/tag/v3.12.1)
 
-**Локальная сборка 0.3.0 для Steam Windows.** Добавлены опора на видимые планы, подсветка пересечений и боковая панель действующих клавиш. Обновлено меню плана. Архив `dist/ShadowArchitect-0.3.0-Steam-Windows.zip` устанавливается в `<игра>/FactoryGame/Mods/GameFeatures/ShadowArchitect/` рядом с SML 3.12.1. [Карточки размещения на голограммах](docs/tasks/archive/h-hologram-placement/)
+**Локальная сборка 0.3.1 для Steam Windows.** При переходе Ghost → Wireframe штатно меняются материалы существующих компонентов. Распакуйте архив в `<игра>/FactoryGame/Mods/GameFeatures/ShadowArchitect/` рядом с SML 3.12.1. [Установочный ZIP](dist/ShadowArchitect-0.3.1-Steam-Windows.zip) · [Проверка F06](docs/tasks/f-projection-performance/06-enable-wireframe-reuse-in-release.md)
+
+**Предыдущая локальная сборка 0.3.0 для Steam Windows.** Добавлены опора на видимые планы, подсветка пересечений и боковая панель действующих клавиш. Обновлено меню плана. [Карточки размещения на голограммах](docs/tasks/archive/h-hologram-placement/)
 
 **Предыдущая локальная сборка 0.2.0 для Steam Windows.** Добавлены выбор под прицелом, метка выбранного плана и очистка планов в кадре. [Карточки редактирования планов](docs/tasks/archive/e-plan-editing/)
 

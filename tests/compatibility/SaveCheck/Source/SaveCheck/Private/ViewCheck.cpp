@@ -1,3 +1,4 @@
+#include "ProjectionGeometry.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "CollisionQueryParams.h"
@@ -27,6 +28,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Misc/Paths.h"
 #include "Misc/CommandLine.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
 #include "Modules/ModuleManager.h"
 #include "UnrealClient.h"
@@ -44,7 +46,10 @@ struct FProjectionState
     FTransform Transform;
     TWeakObjectPtr<AActor> View;
     TArray<TWeakObjectPtr<UStaticMeshComponent>> Meshes;
-    TArray<FString> Geometry;
+    TArray<TWeakObjectPtr<UMaterialInterface>> Materials;
+    TArray<FProjectionPiece> Geometry;
+    int32 IsmGroups = 0;
+    int32 RotatedInstances = 0;
 };
 
 AActor* FindPlanSubsystem(UWorld& World)
@@ -116,9 +121,7 @@ bool Snapshot(UWorld& World, int32 Mode, int32 Count, bool bVisible, TArray<FPro
             if (!Material || !Mesh->GetStaticMesh() || !Mesh->IsRegistered()
                 || Mesh->GetAttachParent() != View->GetRootComponent()) return false;
             const FName Name = Material->GetFName();
-            if (Mode == 1 ? (Name != FName(TEXT("M_ShadowWireframe")) && Name != FName(TEXT("M_ShadowBoxEdges")))
-                : Name != FName(TEXT("Hologram_Blue_Inst"))) return false;
-            if (Mode == 1 && FParse::Param(FCommandLine::Get(), TEXT("ShadowReuseWireframe")))
+            if (Mode == 1)
             {
                 const bool bProxy = Mesh->ComponentHasTag(FName(TEXT("ShadowArchitect.ProxyMesh")));
                 const FName Expected(bProxy ? TEXT("M_ShadowBoxEdges") : TEXT("M_ShadowWireframe"));
@@ -126,13 +129,23 @@ bool Snapshot(UWorld& World, int32 Mode, int32 Count, bool bVisible, TArray<FPro
                     || (bProxy && Mesh->GetStaticMesh()->GetFName() != FName(TEXT("Cube")))
                     || Mesh->IsDisallowNanite() != bool(Material->GetMaterial()->Wireframe)) return false;
             }
+            else if (Name != FName(TEXT("Hologram_Blue_Inst"))) return false;
             for (int32 Slot = 1; Slot < Mesh->GetNumMaterials(); ++Slot)
                 if (Mesh->GetMaterial(Slot) != Material) return false;
             if (Mode == 2 && Mesh->GetStaticMesh()->GetFName() != FName(TEXT("Cube"))) return false;
             State.Meshes.Add(Mesh);
-            State.Geometry.Add(Mesh->GetStaticMesh()->GetPathName() + TEXT(" ") + Mesh->GetRelativeTransform().ToString());
+            State.Materials.Add(Material);
+            const int32 First = State.Geometry.Num();
+            if (!AppendProjectionPieces(*Mesh, State.Geometry)) return false;
+            if (Mesh->IsA<UInstancedStaticMeshComponent>())
+            {
+                if (Mode == 2) return false;
+                ++State.IsmGroups;
+                for (int32 PieceIndex = First; PieceIndex < State.Geometry.Num(); ++PieceIndex)
+                    if (!State.Geometry[PieceIndex].Relative.GetRotation().Equals(FQuat::Identity, 0.001))
+                        ++State.RotatedInstances;
+            }
         }
-        State.Geometry.Sort();
     }
     return true;
 }
@@ -158,8 +171,9 @@ struct FViewProbe
     bool bPressed = false;
     bool bCustomKeys = false;
     bool bLegacyKeys = false;
-    bool bReuseWireframe = false;
     bool bCheckWireframeRejection = false;
+    bool bRequireInstances = false;
+    bool bDumpGeometry = false;
     FString CtrlQMode;
     TOptional<FVector> BuildTarget;
 
@@ -234,7 +248,8 @@ struct FViewProbe
         return !bPressed;
     }
 
-    bool Confirm(UWorld& World, const TCHAR* Action, int32 Mode, int32 Count, bool bVisible, bool bReplaced = false)
+    bool Confirm(UWorld& World, const TCHAR* Action, int32 Mode, int32 Count, bool bVisible, bool bReplaced = false,
+        bool bKeepMaterials = false)
     {
         TArray<FProjectionState> Current;
         if (!Snapshot(World, Mode, Count, bVisible, Current))
@@ -252,7 +267,9 @@ struct FViewProbe
                 for (const auto& Mesh : Previous[Index].Meshes)
                     if (Mesh.IsValid()) return false;
             }
-            else if (Previous[Index].Meshes != Current[Index].Meshes) return false;
+            else if (Previous[Index].Meshes != Current[Index].Meshes
+                || !MatchProjectionPieces(Previous[Index].Geometry, Current[Index].Geometry)) return false;
+            if (bKeepMaterials && Previous[Index].Materials != Current[Index].Materials) return false;
         }
         for (int32 Index = Previous.Num(); Index < Current.Num(); ++Index)
             UE_LOG(LogSaveCheckViews, Display, TEXT("action=%s new_guid=%s"), Action, *Current[Index].Id.ToString());
@@ -264,6 +281,23 @@ struct FViewProbe
             *FString::Join(MeshCounts, TEXT(",")), bReplaced);
         Previous = MoveTemp(Current);
         return true;
+    }
+
+    bool DumpGeometry(const TCHAR* File) const
+    {
+        if (!IFileManager::Get().MakeDirectory(*OutputDir, true)) return false;
+        FString Csv = TEXT("plan,mesh,slots,proxy,tx,ty,tz,qx,qy,qz,qw,sx,sy,sz\n");
+        for (const auto& State : Previous)
+            for (const auto& Piece : State.Geometry)
+            {
+                const FVector Position = Piece.Relative.GetTranslation();
+                const FQuat Rotation = Piece.Relative.GetRotation();
+                const FVector Scale = Piece.Relative.GetScale3D();
+                Csv += FString::Printf(TEXT("%s,%s,%d,%d,%.6f,%.6f,%.6f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f\n"),
+                    *State.Id.ToString(), *Piece.Asset, Piece.Slots, Piece.bProxy, Position.X, Position.Y, Position.Z,
+                    Rotation.X, Rotation.Y, Rotation.Z, Rotation.W, Scale.X, Scale.Y, Scale.Z);
+            }
+        return FFileHelper::SaveStringToFile(Csv, *FPaths::Combine(OutputDir, File), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
     }
 
     bool Frame(const TCHAR* File)
@@ -377,6 +411,7 @@ struct FViewProbe
             if (!CheckLoadedModule() || !CheckBindings(Player) || !Confirm(World, TEXT("initial"), 0, 2, true))
                 return Finish(false, TEXT("loaded module, bindings or initial Ghost"));
             Initial = Previous;
+            if (bDumpGeometry && !DumpGeometry(TEXT("GhostGeometry.csv"))) return Finish(false, TEXT("dump Ghost geometry"));
             for (const auto& State : Initial)
                 UE_LOG(LogSaveCheckViews, Display, TEXT("initial id=%s transform=%s"), *State.Id.ToString(), *State.Transform.ToString());
             if (!CtrlQMode.IsEmpty())
@@ -420,19 +455,20 @@ struct FViewProbe
             if (bCheckWireframeRejection)
             {
                 bCheckWireframeRejection = false;
-                if (!Confirm(World, TEXT("wireframe-prepare-rejected"), 0, 2, true))
+                if (!Confirm(World, TEXT("wireframe-prepare-rejected"), 0, 2, true, false, true))
                     return Finish(false, TEXT("rejected preparation changed Ghost components"));
                 UE_LOG(LogSaveCheckViews, Display, TEXT("wireframe_prepare_rejected=1 original_components=1 original_materials=1"));
                 break;
             }
             ++Cycles;
             if (!Confirm(World, *ViewInput().GetInputText().ToString(), Cycles % 3, 2, true,
-                !bReuseWireframe || Cycles % 3 != 1)) return Finish(false, TEXT("cycle"));
+                Cycles % 3 != 1)) return Finish(false, TEXT("cycle"));
             if (Cycles == 9)
             {
                 for (int32 Index = 0; Index < Initial.Num(); ++Index)
                 {
-                    if (Initial[Index].Geometry != Previous[Index].Geometry) return Finish(false, TEXT("Ghost geometry changed"));
+                    if (!MatchProjectionPieces(Initial[Index].Geometry, Previous[Index].Geometry))
+                        return Finish(false, TEXT("Ghost geometry changed"));
                     UE_LOG(LogSaveCheckViews, Display, TEXT("after_three_cycles id=%s transform=%s same_actor=1 same_geometry=1"),
                         *Previous[Index].Id.ToString(), *Previous[Index].Transform.ToString());
                 }
@@ -443,23 +479,39 @@ struct FViewProbe
             if (Frame(TEXT("Ghost-after.png"))) SetStep(EStep::Wireframe);
             break;
         case EStep::Wireframe:
+        {
             if (!Stroke(Player, ViewInput())) break;
-            if (!Confirm(World, *ViewInput().GetInputText().ToString(), 1, 2, true, !bReuseWireframe))
+            if (!Confirm(World, *ViewInput().GetInputText().ToString(), 1, 2, true))
                 return Finish(false, TEXT("Wireframe snapshot"));
-            if (bReuseWireframe)
+            int32 ProxyMeshes = 0;
+            int32 RegularMeshes = 0;
+            int32 MultiSlotMeshes = 0;
+            int32 IsmGroups = 0;
+            int32 RotatedInstances = 0;
+            for (const auto& State : Previous)
             {
-                int32 ProxyMeshes = 0;
-                int32 RegularMeshes = 0;
-                for (const auto& State : Previous)
-                    for (const auto& Mesh : State.Meshes)
-                        if (Mesh->ComponentHasTag(FName(TEXT("ShadowArchitect.ProxyMesh")))) ++ProxyMeshes;
-                        else ++RegularMeshes;
-                if (ProxyMeshes == 0 || RegularMeshes == 0) return Finish(false, TEXT("missing Wireframe mesh role"));
-                UE_LOG(LogSaveCheckViews, Display, TEXT("wireframe_identity=1 regular_meshes=%d proxy_meshes=%d"),
-                    RegularMeshes, ProxyMeshes);
+                IsmGroups += State.IsmGroups;
+                RotatedInstances += State.RotatedInstances;
+                for (const auto& Piece : State.Geometry)
+                {
+                    if (Piece.bProxy) ++ProxyMeshes;
+                    else
+                    {
+                        ++RegularMeshes;
+                        if (Piece.Slots > 1) ++MultiSlotMeshes;
+                    }
+                }
             }
+            if (ProxyMeshes != 2 || RegularMeshes != 58) return Finish(false, TEXT("unexpected Wireframe mesh counts"));
+            if (bRequireInstances && (IsmGroups == 0 || RotatedInstances == 0 || MultiSlotMeshes == 0))
+                return Finish(false, TEXT("missing ISM group, rotated instance or multi-slot mesh"));
+            UE_LOG(LogSaveCheckViews, Display,
+                TEXT("wireframe_identity=1 regular_meshes=%d proxy_meshes=%d ism_groups=%d rotated_instances=%d multi_slot_meshes=%d"),
+                RegularMeshes, ProxyMeshes, IsmGroups, RotatedInstances, MultiSlotMeshes);
+            if (bDumpGeometry && !DumpGeometry(TEXT("WireframeGeometry.csv"))) return Finish(false, TEXT("dump Wireframe geometry"));
             SetStep(EStep::WireframeFrame);
             break;
+        }
         case EStep::WireframeFrame:
             if (Frame(TEXT("Wireframe.png")))
             {
@@ -575,9 +627,9 @@ FTickerDelegate MakeViewCheck(FString OutputDir, bool bCustomKeys)
     Probe.OutputDir = MoveTemp(OutputDir);
     Probe.bCustomKeys = bCustomKeys;
     Probe.bLegacyKeys = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckLegacyKeys"));
-    Probe.bReuseWireframe = FParse::Param(FCommandLine::Get(), TEXT("ShadowReuseWireframe"));
-    Probe.bCheckWireframeRejection = Probe.bReuseWireframe
-        && FParse::Param(FCommandLine::Get(), TEXT("ShadowTestRejectSecondWireframePlan"));
+    Probe.bCheckWireframeRejection = FParse::Param(FCommandLine::Get(), TEXT("ShadowTestRejectSecondWireframePlan"));
+    Probe.bRequireInstances = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckRequireISM"));
+    Probe.bDumpGeometry = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckDumpGeometry"));
     FParse::Value(FCommandLine::Get(), TEXT("SaveCheckViewCtrlQ="), Probe.CtrlQMode);
     return FTickerDelegate::CreateLambda([Probe = MoveTemp(Probe)](float) mutable { return Probe.Tick(); });
 }

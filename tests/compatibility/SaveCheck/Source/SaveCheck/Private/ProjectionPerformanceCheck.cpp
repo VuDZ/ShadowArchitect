@@ -1,5 +1,6 @@
 #include "RoofStackFixture.h"
 #include "Camera/CameraActor.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Containers/Ticker.h"
 #include "Engine/Engine.h"
@@ -10,8 +11,10 @@
 #include "Kismet/GameplayStatics.h"
 #include "HAL/PlatformMemory.h"
 #include "Misc/App.h"
+#include "Misc/CommandLine.h"
 #include "Misc/CoreDelegates.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "RenderTimer.h"
 #include "RenderingThread.h"
@@ -78,7 +81,8 @@ struct FProjectionPerformanceCheck : TSharedFromThis<FProjectionPerformanceCheck
     int32 WindowStart = 0;
     int32 Pass = 0;
     int32 Run = 0;
-    int32 GhostMeshes = INDEX_NONE;
+    int32 GhostVisuals = INDEX_NONE;
+    bool bRequireInstances = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckRequireISM"));
     bool bMeasuredDraws = false;
     bool bCaptureFrames = false;
     bool bCapturedFrame = false;
@@ -167,7 +171,7 @@ struct FProjectionPerformanceCheck : TSharedFromThis<FProjectionPerformanceCheck
         return Inside == ExpectedPlans;
     }
 
-    bool Inspect(UWorld& World, int32& Meshes)
+    bool Inspect(UWorld& World)
     {
         TArray<FRoofStackPlan> Plans;
         if (!ReadRoofStackPlans(World, Plans) || Plans.Num() != ExpectedPlans) return false;
@@ -180,7 +184,9 @@ struct FProjectionPerformanceCheck : TSharedFromThis<FProjectionPerformanceCheck
         auto* ViewClass = FindObject<UClass>(nullptr, TEXT("/Script/ShadowArchitect.ShadowProjection"));
         if (!ViewClass) return false;
         int32 Actors = 0;
-        Meshes = 0;
+        int32 Meshes = 0;
+        int32 IsmGroups = 0;
+        int32 IsmInstances = 0;
         const int32 Mode = Pass % 3;
         for (TActorIterator<AActor> It(&World, ViewClass); It; ++It)
         {
@@ -196,16 +202,26 @@ struct FProjectionPerformanceCheck : TSharedFromThis<FProjectionPerformanceCheck
                     const FName Name = Material->GetFName();
                     if (Mode == 1 ? (Name != FName(TEXT("M_ShadowWireframe")) && Name != FName(TEXT("M_ShadowBoxEdges")))
                         : Name != FName(TEXT("Hologram_Blue_Inst"))) return false;
+                    if (const auto* Group = Cast<UInstancedStaticMeshComponent>(Mesh))
+                    {
+                        const int32 Count = Group->GetInstanceCount();
+                        if (Count < 2 || Mode == 2) return false;
+                        ++IsmGroups;
+                        IsmInstances += Count;
+                    }
                     ++ActorMeshes;
                 }
             if (ActorMeshes == 0 || (Mode == 2 && ActorMeshes != 1) || It->IsHidden()) return false;
             Meshes += ActorMeshes;
         }
-        if (GhostMeshes == INDEX_NONE) GhostMeshes = Meshes;
+        const int32 Visuals = Meshes - IsmGroups + IsmInstances;
+        if (GhostVisuals == INDEX_NONE) GhostVisuals = Visuals;
         UE_LOG(LogSaveCheckProjectionPerformance, Display,
-            TEXT("snapshot run=%d pass=%d mode=%s plans=%d actors=%d meshes=%d"),
-            Run, Pass, ProfileModes[Mode], Plans.Num(), Actors, Meshes);
-        return Actors == ExpectedPlans && (Mode == 2 ? Meshes == ExpectedPlans : Meshes == GhostMeshes);
+            TEXT("snapshot run=%d pass=%d mode=%s plans=%d actors=%d meshes=%d ism_groups=%d ism_instances=%d visual_instances=%d"),
+            Run, Pass, ProfileModes[Mode], Plans.Num(), Actors, Meshes, IsmGroups, IsmInstances, Visuals);
+        if (Actors != ExpectedPlans) return false;
+        if (Mode == 2) return Visuals == ExpectedPlans;
+        return Visuals == GhostVisuals && (!bRequireInstances || IsmGroups > 0);
     }
 
     void SummarizeWindow()
@@ -258,8 +274,7 @@ struct FProjectionPerformanceCheck : TSharedFromThis<FProjectionPerformanceCheck
             if (Stage == EStage::Startup)
             {
                 if (LoadedWorld.Get() == World) return true;
-                int32 Meshes = 0;
-                if (!Inspect(*World, Meshes)) return End(false, TEXT("initial projection snapshot"));
+                if (!Inspect(*World)) return End(false, TEXT("initial projection snapshot"));
                 if (!FApp::CanEverRender() || GUsingNullRHI) return End(false, TEXT("rendering disabled"));
                 auto* Camera = World->SpawnActor<ACameraActor>(
                     FVector(-209000, -142500, 38850), FRotator(-41.0, 130.6, 0));
@@ -287,8 +302,7 @@ struct FProjectionPerformanceCheck : TSharedFromThis<FProjectionPerformanceCheck
             {
                 if (Stage == EStage::Settling)
                 {
-                    int32 Meshes = 0;
-                    if (!Inspect(*World, Meshes)) return End(false, TEXT("projection layout changed"));
+                    if (!Inspect(*World)) return End(false, TEXT("projection layout changed"));
                     if (!bCapturedFrame && bCaptureFrames && Run == 0 && Pass < 3)
                     {
                         const FString Path = FPaths::ChangeExtension(Output, FString(ProfileModes[Pass]) + TEXT(".png"));

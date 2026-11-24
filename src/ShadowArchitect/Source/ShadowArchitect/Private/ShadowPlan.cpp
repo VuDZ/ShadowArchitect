@@ -278,8 +278,7 @@ void AShadowPlanSubsystem::CycleView()
     const auto NextMode = static_cast<EShadowView>(NextIndex);
     FShadowProjectionProfile Profile(TEXT("cycle"), ViewMode, NextMode, Plans.Num(), Views);
 
-    static const bool bReuseWireframe = FParse::Param(FCommandLine::Get(), TEXT("ShadowReuseWireframe"));
-    if (bReuseWireframe && ViewMode == EShadowView::Ghost)
+    if (ViewMode == EShadowView::Ghost)
     {
         const bool bSuccess = ReuseProjectionMeshesForWireframe(Profile);
         if (bSuccess) ViewMode = NextMode;

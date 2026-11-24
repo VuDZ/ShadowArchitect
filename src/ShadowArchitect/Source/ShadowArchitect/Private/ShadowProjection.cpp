@@ -1,5 +1,6 @@
 #include "ShadowPlan.h"
 #include "ShadowProjectionProfile.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
@@ -8,10 +9,27 @@
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformTime.h"
 #include "Materials/Material.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 namespace
 {
 const FName ShadowProxyMeshTag(TEXT("ShadowArchitect.ProxyMesh"));
+constexpr TCHAR WireframeMaterialPath[] = TEXT("/ShadowArchitect/Materials/M_ShadowWireframe.M_ShadowWireframe");
+
+bool CanUsePerPlanInstances(UMaterialInterface& Material)
+{
+    static const bool bEnabled = FParse::Param(FCommandLine::Get(), TEXT("ShadowPerPlanISM"));
+    if (!bEnabled || !Material.CheckMaterialUsage_Concurrent(MATUSAGE_InstancedStaticMeshes)) return false;
+
+    // Ghost components must also support the in-place transition to Wireframe.
+    static const bool bSupportsWireframe = []
+    {
+        const auto* Wireframe = LoadObject<UMaterialInterface>(nullptr, WireframeMaterialPath);
+        return Wireframe && Wireframe->CheckMaterialUsage_Concurrent(MATUSAGE_InstancedStaticMeshes);
+    }();
+    return bSupportsWireframe;
+}
 
 bool HasValidPartGeometry(const FShadowPart& Part)
 {
@@ -94,10 +112,11 @@ void AShadowProjection::Tick(float DeltaSeconds)
 }
 
 void AShadowProjection::AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative,
-    FShadowProjectionProfile* Profile, bool bProxy)
+    FShadowProjectionProfile* Profile, bool bProxy, const TArray<FTransform>* Instances)
 {
     const uint64 Start = Profile ? FPlatformTime::Cycles64() : 0;
-    UStaticMeshComponent* Mesh = NewObject<UStaticMeshComponent>(this, NAME_None, RF_Transient);
+    auto* Group = Instances ? NewObject<UInstancedStaticMeshComponent>(this, NAME_None, RF_Transient) : nullptr;
+    UStaticMeshComponent* Mesh = Group ? Group : NewObject<UStaticMeshComponent>(this, NAME_None, RF_Transient);
     if (bProxy) Mesh->ComponentTags.Add(ShadowProxyMeshTag);
     Mesh->SetupAttachment(GetRootComponent());
     Mesh->SetMobility(EComponentMobility::Movable);
@@ -111,6 +130,7 @@ void AShadowProjection::AddMesh(UStaticMesh& Asset, UMaterialInterface& Material
     Mesh->SetRelativeTransform(Relative);
     for (int32 Slot = 0; Slot < FMath::Max(1, Mesh->GetNumMaterials()); ++Slot)
         Mesh->SetMaterial(Slot, &Material);
+    if (Group) Group->AddInstances(*Instances, false, false, false);
     AddInstanceComponent(Mesh);
     const uint64 RegisterStart = Profile ? FPlatformTime::Cycles64() : 0;
     Mesh->RegisterComponent();
@@ -153,8 +173,7 @@ bool LoadShadowWireframeMaterials(UMaterialInterface*& Wireframe, UMaterialInter
 {
     check(IsInGameThread());
     const uint64 Start = Profile ? FPlatformTime::Cycles64() : 0;
-    Wireframe = LoadObject<UMaterialInterface>(nullptr,
-        TEXT("/ShadowArchitect/Materials/M_ShadowWireframe.M_ShadowWireframe"));
+    Wireframe = LoadObject<UMaterialInterface>(nullptr, WireframeMaterialPath);
     BoxEdges = LoadObject<UMaterialInterface>(nullptr,
         TEXT("/ShadowArchitect/Materials/M_ShadowBoxEdges.M_ShadowBoxEdges"));
     if (Profile) Profile->MaterialCycles += FPlatformTime::Cycles64() - Start;
@@ -181,6 +200,8 @@ bool AShadowProjection::PrepareWireframe(UMaterialInterface* Wireframe, UMateria
         auto* Mesh = Cast<UStaticMeshComponent>(Component);
         if (!IsValid(Mesh) || !Mesh->IsRegistered() || !IsValid(Mesh->GetStaticMesh())) return false;
         const bool bProxy = Mesh->ComponentHasTag(ShadowProxyMeshTag);
+        if (Mesh->IsA<UInstancedStaticMeshComponent>()
+            && !Wireframe->CheckMaterialUsage_Concurrent(MATUSAGE_InstancedStaticMeshes)) return false;
         Changes.Add({ Mesh, bProxy ? BoxEdges : Wireframe, FMath::Max(1, Mesh->GetNumMaterials()),
             bProxy ? bool(BoxBase->Wireframe) : bool(WireframeBase->Wireframe) });
     }
@@ -193,6 +214,9 @@ bool AShadowProjection::BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cu
     check(IsInGameThread());
     const FBox Footprint = CalculateFootprint(Plan.Parts);
     if (Plan.SchemaVersion != 1 || !Footprint.IsValid || !Plan.Transform.IsValid()) return false;
+    const bool bUseInstances = CanUsePerPlanInstances(MeshMaterial);
+    // Ordinary parts share the same override in every slot. Proxy boxes keep their own components.
+    TMap<UStaticMesh*, TArray<FTransform>> MeshGroups;
     for (const FShadowPart& Part : Plan.Parts)
     {
         // Resolve the complete building before adding any components. A removed mod mesh
@@ -217,8 +241,22 @@ bool AShadowProjection::BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cu
         else
         {
             for (int32 Index = 0; Index < Assets.Num(); ++Index)
-                AddMesh(*Assets[Index], MeshMaterial, Part.Meshes[Index].InPart * Part.InPlan, Profile);
+            {
+                const FTransform Relative = Part.Meshes[Index].InPart * Part.InPlan;
+                if (bUseInstances && Relative.GetScale3D().GetMin() > UE_SMALL_NUMBER)
+                    MeshGroups.FindOrAdd(Assets[Index]).Add(Relative);
+                else
+                    AddMesh(*Assets[Index], MeshMaterial, Relative, Profile);
+            }
         }
+    }
+    // Mirrored or degenerate local scales stay on the ordinary path above.
+    for (const auto& Group : MeshGroups)
+    {
+        if (Group.Value.Num() == 1)
+            AddMesh(*Group.Key, MeshMaterial, Group.Value[0], Profile);
+        else
+            AddMesh(*Group.Key, MeshMaterial, FTransform::Identity, Profile, false, &Group.Value);
     }
     LocalPlanBounds = Footprint;
     return true;

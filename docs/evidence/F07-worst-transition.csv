@@ -1,0 +1,12 @@
+case,kind,offset,frame,mono_s,frame_ms,rhi_draws_gpu0,gpu0_ms,render_thread_ms,commit_mib,phase,run,pass,mode,serial,op,from,to,plans,actors,meshes
+F06-100-on,frame,-2,2327,17021791.719081,4.8598,3165,4.2708,2.4425,5233.621,steady,0,2,Footprint,,,,,,,
+F06-100-on,frame,-1,2328,17021791.724236,5.1551,3245,4.3205,1.9131,-1.0,switch,0,3,Ghost,,,,,,,
+F06-100-on,operation_phase,0,2329,17021791.724416,,,,,5233.621,before,,,,4,cycle,Footprint,Ghost,100,100,100
+F06-100-on,operation_phase,0,2329,17021791.763639,,,,,5239.168,coexist,,,,4,cycle,Footprint,Ghost,100,100,3900
+F06-100-on,operation_phase,0,2329,17021791.764572,,,,,5239.168,after,,,,4,cycle,Footprint,Ghost,100,100,3800
+F06-100-on,frame,0,2329,17021791.779888,55.6525,3213,4.2463,1.9408,-1.0,switch,0,3,Ghost,,,,,,,
+F06-100-on,frame,1,2330,17021791.783492,3.6038,3213,4.2463,17.8132,-1.0,switch,0,3,Ghost,,,,,,,
+F06-100-on,frame,2,2331,17021791.792903,9.4113,3116,4.12,5.8185,-1.0,switch,0,3,Ghost,,,,,,,
+F06-100-on,frame,3,2332,17021791.800022,7.1185,10560,4.4582,5.2612,-1.0,switch,0,3,Ghost,,,,,,,
+F06-100-on,frame,4,2333,17021791.807317,7.2949,10213,4.404,5.4599,-1.0,switch,0,3,Ghost,,,,,,,
+F06-100-on,frame,5,2334,17021791.815555,8.2383,10208,4.4718,6.0052,-1.0,switch,0,3,Ghost,,,,,,,

@@ -109,7 +109,7 @@ private:
     bool BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cube,
         UMaterialInterface& MeshMaterial, UMaterialInterface& ProxyMaterial, FShadowProjectionProfile* Profile);
     void AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative,
-        FShadowProjectionProfile* Profile, bool bProxy = false);
+        FShadowProjectionProfile* Profile, bool bProxy = false, const TArray<FTransform>* Instances = nullptr);
 };
 
 UCLASS()
