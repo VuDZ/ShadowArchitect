@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="375" viewBox="0 0 900 375" role="img" aria-label="Memory while idle in a fixed scene">
+<rect width="900" height="375" fill="#fff"/>
+<g font-family="Segoe UI,Arial,sans-serif" fill="#15222b">
+<text x="35" y="38" font-size="22" font-weight="600">Memory while idle in a fixed scene</text>
+<text x="68" y="83" font-size="16" font-weight="600">Private working set (MiB)</text>
+<path d="M68,289.0h355" stroke="#d0dae0"/>
+<text x="59" y="293.0" text-anchor="end" font-size="12">2,500</text>
+<path d="M68,226.66666666666666h355" stroke="#d0dae0"/>
+<text x="59" y="230.66666666666666" text-anchor="end" font-size="12">3,000</text>
+<path d="M68,164.33333333333331h355" stroke="#d0dae0"/>
+<text x="59" y="168.33333333333331" text-anchor="end" font-size="12">3,500</text>
+<path d="M68,102.0h355" stroke="#d0dae0"/>
+<text x="59" y="106.0" text-anchor="end" font-size="12">4,000</text>
+<text x="68.0" y="309" text-anchor="middle" font-size="12">0</text>
+<text x="133.74074074074073" y="309" text-anchor="middle" font-size="12">30</text>
+<text x="199.48148148148147" y="309" text-anchor="middle" font-size="12">60</text>
+<text x="265.22222222222223" y="309" text-anchor="middle" font-size="12">90</text>
+<text x="330.96296296296293" y="309" text-anchor="middle" font-size="12">120</text>
+<text x="396.7037037037037" y="309" text-anchor="middle" font-size="12">150</text>
+<polyline points="68.0,212.6 81.1,209.6 94.3,194.9 107.4,167.2 120.6,167.9 133.7,164.8 146.9,160.5 160.0,155.3 173.2,150.6 186.3,145.2 199.5,143.8 212.6,139.3 225.8,133.9 238.9,128.7 252.1,123.3 265.2,118.0 278.4,112.8 291.5,110.0 304.7,149.6 317.8,144.1 331.0,139.8 344.1,134.3 357.3,128.8 370.4,123.3 383.6,117.9 396.7,112.5 409.9,107.1 423.0,102.6" fill="none" stroke="#005f9e" stroke-width="2.5" stroke-linejoin="round"/>
+<polyline points="68.0,258.9 81.1,254.9 94.3,249.5 107.4,244.4 120.6,239.8 133.7,234.4 146.9,228.9 160.0,223.6 173.2,218.2 186.3,212.9 199.5,211.8 212.6,207.3 225.8,202.1 238.9,196.8 252.1,191.6 265.2,186.1 278.4,180.6 291.5,174.8 304.7,169.0 317.8,163.4 331.0,159.1 344.1,153.3 357.3,147.6 370.4,141.8 383.6,136.1 396.7,130.3 409.9,124.5 423.0,119.7" fill="none" stroke="#a24317" stroke-width="2.5" stroke-linejoin="round"/>
+<polyline points="68.0,262.3 81.1,259.0 94.3,253.6 107.4,248.0 120.6,243.1 133.7,237.3 146.9,231.7 160.0,226.2 173.2,220.6 186.3,215.0 199.5,213.0 212.6,208.3 225.8,202.7 238.9,197.1 252.1,191.7 265.2,185.8 278.4,180.3 291.5,174.7 304.7,169.1 317.8,163.4 331.0,159.2 344.1,153.6 357.3,147.9 370.4,142.3 383.6,136.8 396.7,131.0 409.9,125.3 423.0,120.6" fill="none" stroke="#007755" stroke-width="2.5" stroke-linejoin="round"/>
+<text x="503" y="83" font-size="16" font-weight="600">Private bytes (MiB)</text>
+<path d="M503,289.0h355" stroke="#d0dae0"/>
+<text x="494" y="293.0" text-anchor="end" font-size="12">4,500</text>
+<path d="M503,242.25h355" stroke="#d0dae0"/>
+<text x="494" y="246.25" text-anchor="end" font-size="12">5,000</text>
+<path d="M503,195.5h355" stroke="#d0dae0"/>
+<text x="494" y="199.5" text-anchor="end" font-size="12">5,500</text>
+<path d="M503,148.75h355" stroke="#d0dae0"/>
+<text x="494" y="152.75" text-anchor="end" font-size="12">6,000</text>
+<path d="M503,102.0h355" stroke="#d0dae0"/>
+<text x="494" y="106.0" text-anchor="end" font-size="12">6,500</text>
+<text x="503.0" y="309" text-anchor="middle" font-size="12">0</text>
+<text x="568.7407407407408" y="309" text-anchor="middle" font-size="12">30</text>
+<text x="634.4814814814815" y="309" text-anchor="middle" font-size="12">60</text>
+<text x="700.2222222222222" y="309" text-anchor="middle" font-size="12">90</text>
+<text x="765.9629629629629" y="309" text-anchor="middle" font-size="12">120</text>
+<text x="831.7037037037037" y="309" text-anchor="middle" font-size="12">150</text>
+<polyline points="503.0,198.7 516.1,214.1 529.3,203.7 542.4,181.6 555.6,182.6 568.7,180.0 581.9,178.1 595.0,175.1 608.2,171.5 621.3,167.3 634.5,166.1 647.6,162.6 660.8,158.4 673.9,154.4 687.1,150.2 700.2,146.1 713.4,142.1 726.5,139.9 739.7,171.4 752.8,167.1 766.0,163.8 779.1,159.6 792.3,155.3 805.4,151.0 818.6,146.8 831.7,142.5 844.9,138.4 858.0,134.9" fill="none" stroke="#005f9e" stroke-width="2.5" stroke-linejoin="round"/>
+<polyline points="503.0,249.4 516.1,247.2 529.3,242.8 542.4,238.7 555.6,235.3 568.7,231.7 581.9,229.3 595.0,225.3 608.2,221.2 621.3,217.2 634.5,216.3 647.6,212.9 660.8,209.0 673.9,205.2 687.1,201.3 700.2,197.2 713.4,193.1 726.5,188.6 739.7,184.1 752.8,179.8 766.0,176.5 779.1,172.0 792.3,167.5 805.4,163.1 818.6,158.6 831.7,154.1 844.9,149.6 858.0,145.9" fill="none" stroke="#a24317" stroke-width="2.5" stroke-linejoin="round"/>
+<polyline points="503.0,249.5 516.1,250.1 529.3,245.6 542.4,241.4 555.6,237.9 568.7,233.8 581.9,231.3 595.0,227.2 608.2,222.8 621.3,218.5 634.5,216.9 647.6,213.4 660.8,209.2 673.9,205.0 687.1,200.7 700.2,196.4 713.4,192.2 726.5,188.0 739.7,183.7 752.8,179.3 766.0,176.1 779.1,171.8 792.3,167.4 805.4,163.0 818.6,158.8 831.7,154.3 844.9,149.9 858.0,146.2" fill="none" stroke="#007755" stroke-width="2.5" stroke-linejoin="round"/>
+<text x="450" y="332" text-anchor="middle" font-size="13">Seconds since the first measurement</text>
+<path d="M225,353h24" stroke="#005f9e" stroke-width="3"/>
+<text x="256" y="357" font-size="13">Empty control</text>
+<path d="M397,353h24" stroke="#a24317" stroke-width="3"/>
+<text x="428" y="357" font-size="13">Built grid</text>
+<path d="M569,353h24" stroke="#007755" stroke-width="3"/>
+<text x="600" y="357" font-size="13">Empty, repeat</text>
+</g></svg>

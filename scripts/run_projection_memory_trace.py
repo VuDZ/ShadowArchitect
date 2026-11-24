@@ -24,7 +24,7 @@ ORDER = (
 REUSE_ORDER = ((1, "control"), (1, "ordinary"), (1, "ism"), (2, "ism"), (2, "ordinary"), (2, "control"))
 
 
-def process_names():
+def process_entries():
     class Entry(ct.Structure):
         _fields_ = [
             ("size", win.DWORD), ("usage", win.DWORD), ("pid", win.DWORD),
@@ -40,20 +40,24 @@ def process_names():
     first = bind(kernel, "Process32FirstW", win.BOOL, win.HANDLE, ct.POINTER(Entry))
     advance = bind(kernel, "Process32NextW", win.BOOL, win.HANDLE, ct.POINTER(Entry))
     close = bind(kernel, "CloseHandle", win.BOOL, win.HANDLE)
-    names = []
+    entries = []
     try:
         entry = Entry()
         entry.size = ct.sizeof(entry)
         if not first(snapshot, ct.byref(entry)):
             raise ct.WinError(ct.get_last_error())
         while True:
-            names.append(entry.name.lower())
+            entries.append((entry.pid, entry.parent, entry.name.lower()))
             if not advance(snapshot, ct.byref(entry)):
                 if ct.get_last_error() != 18:  # ERROR_NO_MORE_FILES
                     raise ct.WinError(ct.get_last_error())
-                return names
+                return entries
     finally:
         close(snapshot)
+
+
+def process_names():
+    return [name for _, _, name in process_entries()]
 
 
 def hash_file(path):

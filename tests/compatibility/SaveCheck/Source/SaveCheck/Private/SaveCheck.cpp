@@ -28,6 +28,7 @@ FTickerDelegate MakeProjectionPerformanceCheck(FString Output, int32 ExpectedPla
     int32 Cycles, FString ReloadSlot, bool bCaptureFrames);
 FTickerDelegate MakeProjectionMemoryCheck(double SettleSeconds, double WindowSeconds, int32 Cycles, int32 Rounds, bool bTrace, bool bIdle);
 FTickerDelegate MakeProjectionFixture(FString Slot, int32 Count);
+FTickerDelegate MakeVanillaReuseFixture(FString Slot, int32 Count);
 FTickerDelegate MakeRoofStackCheck(FString Directory, bool bPlanningControls = false);
 
 class FSaveCheck : public IModuleInterface
@@ -145,6 +146,13 @@ public:
         if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionEmptySlot="), ProjectionOutput))
         {
             Handle = FTSTicker::GetCoreTicker().AddTicker(MakeProjectionFixture(MoveTemp(ProjectionOutput), 0), 0.15f);
+            return;
+        }
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckVanillaReuseFixture="), ProjectionOutput))
+        {
+            int32 Count = 0;
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionPlans="), Count);
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeVanillaReuseFixture(ProjectionOutput, Count), 0.10f);
             return;
         }
         if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionFixture="), ProjectionOutput))

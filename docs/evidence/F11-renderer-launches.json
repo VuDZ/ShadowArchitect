@@ -1,0 +1,156 @@
+{
+  "offscreen-empty": {
+    "pid": 42404,
+    "binary_sha256": "7042563DEAC7703881A813AF898C58F927E7F9E00932D1762A7173472FCAC8AB",
+    "save_sha256": {
+      "SAQ_F11_VANILLA_EMPTY": "90DA1C310F19981A19A3C2EDC85F6AEB8A2A69B9B8E29FB46FA210675934FA95"
+    },
+    "command": [
+      "E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\Client\\FactoryGameSteam.exe",
+      "-UserDir=E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\offscreen-empty-profile",
+      "-ABSLOG=E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\offscreen-empty.log",
+      "-ini:Engine:[/Script/EngineSettings.GameMapsSettings]:GameDefaultMap=/Game/FactoryGame/Map/GameLevel01/Persistent_Level,[/Script/EngineSettings.GameMapsSettings]:LocalMapOptions=?loadgame=SAQ_F11_VANILLA_EMPTY?sessionName=SAQF11Vanilla",
+      "-ini:Input:[/Script/Engine.InputSettings]:ConsoleKeys=F9",
+      "-unattended",
+      "-NoSplash",
+      "-NoSound",
+      "-windowed",
+      "-ResX=1280",
+      "-ResY=720",
+      "-NoCrashDialog",
+      "-dx12",
+      "-graphicsadapter=0",
+      "-ExecCmds=t.MaxFPS 0,r.VSync 0,t.IdleWhenNotForeground 0",
+      "-RenderOffscreen"
+    ],
+    "build": "++FactoryGame+rel-main-1.2.6-CL-520140",
+    "hold_seconds": 162.0,
+    "raw_csv_sha256": "E5158DD91E0937CD4499DC61EFACAB667422AD82CD0F491ED8A830AD616029C6",
+    "raw_log_sha256": "ABAC4F50BE8776F58111C131626704CBA98F38E00C6493585CA4C362FBED8486"
+  },
+  "offscreen-built": {
+    "pid": 53548,
+    "binary_sha256": "7042563DEAC7703881A813AF898C58F927E7F9E00932D1762A7173472FCAC8AB",
+    "save_sha256": {
+      "SAQ_F11_VANILLA_BUILT": "61E438ED2BEA514045B170BC7344960124A171B08B24FF937E99DB5AEF8FBCCD"
+    },
+    "command": [
+      "E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\Client\\FactoryGameSteam.exe",
+      "-UserDir=E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\offscreen-built-profile",
+      "-ABSLOG=E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\offscreen-built.log",
+      "-ini:Engine:[/Script/EngineSettings.GameMapsSettings]:GameDefaultMap=/Game/FactoryGame/Map/GameLevel01/Persistent_Level,[/Script/EngineSettings.GameMapsSettings]:LocalMapOptions=?loadgame=SAQ_F11_VANILLA_BUILT?sessionName=SAQF11Vanilla",
+      "-ini:Input:[/Script/Engine.InputSettings]:ConsoleKeys=F9",
+      "-unattended",
+      "-NoSplash",
+      "-NoSound",
+      "-windowed",
+      "-ResX=1280",
+      "-ResY=720",
+      "-NoCrashDialog",
+      "-dx12",
+      "-graphicsadapter=0",
+      "-ExecCmds=t.MaxFPS 0,r.VSync 0,t.IdleWhenNotForeground 0",
+      "-RenderOffscreen"
+    ],
+    "build": "++FactoryGame+rel-main-1.2.6-CL-520140",
+    "hold_seconds": 162.0,
+    "raw_csv_sha256": "4F3F9566643578189673B884139AB06C9ACEB92A236BE46B8F87EAEDF9AA9A3D",
+    "raw_log_sha256": "A9AD4A73F43BD7EC64FF0C76517E84D0DFEFDA9C018FBE45A269FD3C9D53ADE2"
+  },
+  "stock-empty": {
+    "pid": 17940,
+    "binary_sha256": "7042563DEAC7703881A813AF898C58F927E7F9E00932D1762A7173472FCAC8AB",
+    "save_sha256": {
+      "SAQ_F11_VANILLA_EMPTY": "90DA1C310F19981A19A3C2EDC85F6AEB8A2A69B9B8E29FB46FA210675934FA95"
+    },
+    "command": [
+      "E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\StockClient\\FactoryGameSteam.exe",
+      "-UserDir=E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\stock-empty-profile",
+      "-ABSLOG=E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\stock-empty.log",
+      "-ini:Engine:[/Script/EngineSettings.GameMapsSettings]:GameDefaultMap=/Game/FactoryGame/Map/GameLevel01/Persistent_Level,[/Script/EngineSettings.GameMapsSettings]:LocalMapOptions=?loadgame=SAQ_F11_VANILLA_EMPTY?sessionName=SAQF11Vanilla",
+      "-ini:Input:[/Script/Engine.InputSettings]:ConsoleKeys=F9",
+      "-unattended",
+      "-NoSplash",
+      "-NoSound",
+      "-windowed",
+      "-ResX=1280",
+      "-ResY=720",
+      "-NoCrashDialog",
+      "-dx12",
+      "-graphicsadapter=0",
+      "-ExecCmds=t.MaxFPS 0,r.VSync 0,t.IdleWhenNotForeground 0",
+      "-RenderOffscreen"
+    ],
+    "graphics_modules": [
+      "C:\\WINDOWS\\SYSTEM32\\dxgi.dll"
+    ],
+    "build": "++FactoryGame+rel-main-1.2.6-CL-520140",
+    "hold_seconds": 162.0,
+    "raw_csv_sha256": "6B815356381D1E1E9524232DEAA3C7FAEE69353104AA5B72C118BB7D93AC4641",
+    "raw_log_sha256": "2D7C5CAD29D175C6B2322FA3CBDE969157B276A07C8F41D1770AFB0344472C9B"
+  },
+  "stock-built": {
+    "pid": 19700,
+    "binary_sha256": "7042563DEAC7703881A813AF898C58F927E7F9E00932D1762A7173472FCAC8AB",
+    "save_sha256": {
+      "SAQ_F11_VANILLA_BUILT": "61E438ED2BEA514045B170BC7344960124A171B08B24FF937E99DB5AEF8FBCCD"
+    },
+    "command": [
+      "E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\StockClient\\FactoryGameSteam.exe",
+      "-UserDir=E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\stock-built-profile",
+      "-ABSLOG=E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\stock-built.log",
+      "-ini:Engine:[/Script/EngineSettings.GameMapsSettings]:GameDefaultMap=/Game/FactoryGame/Map/GameLevel01/Persistent_Level,[/Script/EngineSettings.GameMapsSettings]:LocalMapOptions=?loadgame=SAQ_F11_VANILLA_BUILT?sessionName=SAQF11Vanilla",
+      "-ini:Input:[/Script/Engine.InputSettings]:ConsoleKeys=F9",
+      "-unattended",
+      "-NoSplash",
+      "-NoSound",
+      "-windowed",
+      "-ResX=1280",
+      "-ResY=720",
+      "-NoCrashDialog",
+      "-dx12",
+      "-graphicsadapter=0",
+      "-ExecCmds=t.MaxFPS 0,r.VSync 0,t.IdleWhenNotForeground 0",
+      "-RenderOffscreen"
+    ],
+    "graphics_modules": [
+      "C:\\WINDOWS\\SYSTEM32\\dxgi.dll"
+    ],
+    "build": "++FactoryGame+rel-main-1.2.6-CL-520140",
+    "hold_seconds": 162.0,
+    "raw_csv_sha256": "16A15F7AD0D51E6A4572B5E86CF8325E860474A11BB5817203A4827C62B00B4E",
+    "raw_log_sha256": "B1735F276B9CCDD3FC15C51E0D8953AF00E97E8184B10F1B218203CFC0FD2410"
+  },
+  "stock-empty-repeat": {
+    "pid": 45036,
+    "binary_sha256": "7042563DEAC7703881A813AF898C58F927E7F9E00932D1762A7173472FCAC8AB",
+    "save_sha256": {
+      "SAQ_F11_VANILLA_EMPTY": "90DA1C310F19981A19A3C2EDC85F6AEB8A2A69B9B8E29FB46FA210675934FA95"
+    },
+    "command": [
+      "E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\StockClient\\FactoryGameSteam.exe",
+      "-UserDir=E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\stock-empty-repeat-profile",
+      "-ABSLOG=E:\\Devel\\ShadowArchitect\\Saved\\F11-reuse\\Vanilla\\stock-empty-repeat.log",
+      "-ini:Engine:[/Script/EngineSettings.GameMapsSettings]:GameDefaultMap=/Game/FactoryGame/Map/GameLevel01/Persistent_Level,[/Script/EngineSettings.GameMapsSettings]:LocalMapOptions=?loadgame=SAQ_F11_VANILLA_EMPTY?sessionName=SAQF11Vanilla",
+      "-ini:Input:[/Script/Engine.InputSettings]:ConsoleKeys=F9",
+      "-unattended",
+      "-NoSplash",
+      "-NoSound",
+      "-windowed",
+      "-ResX=1280",
+      "-ResY=720",
+      "-NoCrashDialog",
+      "-dx12",
+      "-graphicsadapter=0",
+      "-ExecCmds=t.MaxFPS 0,r.VSync 0,t.IdleWhenNotForeground 0",
+      "-RenderOffscreen"
+    ],
+    "graphics_modules": [
+      "C:\\WINDOWS\\SYSTEM32\\dxgi.dll"
+    ],
+    "build": "++FactoryGame+rel-main-1.2.6-CL-520140",
+    "hold_seconds": 162.0,
+    "raw_csv_sha256": "80F0E93F78F2B7E567123CF400FFA21E4A6B6329AE6CDF5E2324F491CBE09C83",
+    "raw_log_sha256": "F48E8BF50DD1E289D9BDCA65C1E8F64B61145AD224BE60283D02F12F13E04CC0"
+  }
+}

@@ -1,4 +1,5 @@
 #include "RoofStackFixture.h"
+#include "Buildables/FGBuildableFoundation.h"
 #include "Camera/CameraActor.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -6,6 +7,7 @@
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "EngineUtils.h"
+#include "FGBlueprintSubsystem.h"
 #include "FGSaveSession.h"
 #include "FGSaveSystem.h"
 #include "HAL/PlatformProcess.h"
@@ -26,6 +28,7 @@
 #include "RenderingThread.h"
 #include "RHICommandList.h"
 #include "RHIStats.h"
+#include "Tests/FGTestBlueprintFunctionLibrary.h"
 #include "UObject/GarbageCollection.h"
 #include "UObject/ReferenceChainSearch.h"
 #include "UObject/StructOnScope.h"
@@ -48,12 +51,14 @@ constexpr double MemoryIntervalSeconds = 0.10;
 constexpr const TCHAR* ProfileModes[] = { TEXT("Ghost"), TEXT("Wireframe"), TEXT("Footprint") };
 const FVector GridCenter(-230000, -118000, 10350);
 constexpr double GridStep = 3000.0;
+const FVector GridCameraPosition(-209000, -142500, 38850);
+const FRotator GridCameraRotation(-41.0, 130.6, 0);
 const FName GridMap(TEXT("/Game/FactoryGame/Map/GameLevel01/Persistent_Level"));
 const FName MenuMap(TEXT("/Game/FactoryGame/Map/MenuScenes/Map_Menu_1_02"));
 
 ACameraActor* SetProjectionCamera(UWorld& World, APlayerController& Player)
 {
-    auto* Camera = World.SpawnActor<ACameraActor>(FVector(-209000, -142500, 38850), FRotator(-41.0, 130.6, 0));
+    auto* Camera = World.SpawnActor<ACameraActor>(GridCameraPosition, GridCameraRotation);
     if (Camera) Player.SetViewTarget(Camera);
     return Camera;
 }
@@ -785,6 +790,96 @@ FTickerDelegate MakeProjectionFixture(FString Slot, int32 Count)
             {
                 UE_LOG(LogSaveCheckProjectionPerformance, Display, TEXT("slot=%s plans=%d write=%d %s"),
                     *Slot, Count, bSaved, *Error.ToString());
+                FPlatformMisc::RequestExit(false);
+            }), nullptr);
+            return false;
+        }
+        return true;
+    });
+}
+
+FTickerDelegate MakeVanillaReuseFixture(FString Slot, int32 Count)
+{
+    return FTickerDelegate::CreateLambda([Slot = MoveTemp(Slot), Count, ReadyAt = 0.0, Deadline = FPlatformTime::Seconds() + 80](float) mutable
+    {
+        const auto Fail = [](const TCHAR* Reason)
+        {
+            UE_LOG(LogSaveCheckProjectionMemory, Error, TEXT("vanilla_fixture=0 reason=%s"), Reason);
+            FPlatformMisc::RequestExit(false);
+            return false;
+        };
+        const double Now = FPlatformTime::Seconds();
+        if (Now > Deadline) return Fail(TEXT("test world or blueprint library unavailable"));
+        if (!GEngine) return true;
+        for (const auto& Context : GEngine->GetWorldContexts())
+        {
+            auto* World = Context.World();
+            if (!World || !World->IsGameWorld() || !World->HasBegunPlay()
+                || !World->GetMapName().Contains(TEXT("Persistent_Level"))) continue;
+            auto* Player = World->GetFirstPlayerController();
+            auto* Save = UFGSaveSession::Get(World);
+            if (!Player || !Player->GetPawn() || !Save) continue;
+            APawn* Pawn = Player->GetPawn();
+            FString Existing;
+            if (!Slot.StartsWith(TEXT("SAQ_F11_VANILLA_")) || !IsBenchmarkSlot(Slot)
+                || (Count != 0 && Count != 100) || UFGSaveSystem::GetAbsolutePathForSaveGame(World, Slot, Existing))
+                return Fail(TEXT("choose a new F11 vanilla test slot and 0 or 100 builds"));
+
+            if (ReadyAt == 0.0)
+            {
+                Save->SetAutoSaveEnabled(false);
+                auto* Library = AFGBlueprintSubsystem::Get(World);
+                TArray<UFGBlueprintDescriptor*> Descriptors;
+                AFGBlueprintSubsystem::GetBlueprintDescriptors(Descriptors, World);
+                auto** Source = Descriptors.FindByPredicate([](const UFGBlueprintDescriptor* Desc)
+                {
+                    return Desc && Desc->GetBlueprintNameAsString() == TEXT("3х3 пустой");
+                });
+                if (!Library || !Source) continue;
+
+                TArray<AFGBuildable*> Preview;
+                Library->LoadStoredBlueprint(*Source, FTransform::Identity, Preview, true);
+                auto** Foundation = Preview.FindByPredicate([](const AFGBuildable* Part)
+                {
+                    return IsValid(Part) && Part->IsA<AFGBuildableFoundation>();
+                });
+                if (!Foundation || !UFGTestBlueprintFunctionLibrary::SpawnBuildableFromClass(
+                    (*Foundation)->GetClass(), FTransform(GridCameraPosition - FVector(0, 0, 130)), World))
+                    return Fail(TEXT("camera foundation could not be built"));
+
+                TMap<FString, int32> Classes;
+                int32 Built = 0;
+                for (int32 Index = 0; Index < Count; ++Index)
+                {
+                    TArray<AFGBuildable*> Parts;
+                    const FVector Position = GridCenter + GridStep * FVector(Index % 10 - 4.5, Index / 10 - 4.5, 0);
+                    if (!UFGTestBlueprintFunctionLibrary::SpawnBlueprintFromDescriptor(*Source, FTransform(Position), World, {}, Parts)
+                        || Parts.IsEmpty()) return Fail(TEXT("could not build the unmodified blueprint grid"));
+                    Built += Parts.Num();
+                    for (const auto* Part : Parts)
+                        if (IsValid(Part)) ++Classes.FindOrAdd(Part->GetClass()->GetName());
+                }
+                for (const auto& Pair : Classes)
+                    UE_LOG(LogSaveCheckProjectionMemory, Display, TEXT("vanilla_class=%s count=%d"), *Pair.Key, Pair.Value);
+                UE_LOG(LogSaveCheckProjectionMemory, Display, TEXT("vanilla_groups=%d buildables=%d"), Count, Built);
+                if (!Pawn->SetActorLocation(GridCameraPosition + FVector(0, 0, 300), false, nullptr, ETeleportType::TeleportPhysics))
+                    return Fail(TEXT("cannot place the camera player"));
+                Player->SetControlRotation(GridCameraRotation);
+                ReadyAt = FPlatformTime::Seconds() + 3;
+                return true;
+            }
+            if (Now < ReadyAt) return true;
+
+            FVector ViewPosition;
+            FRotator ViewRotation;
+            Player->GetPlayerViewPoint(ViewPosition, ViewRotation);
+            if (!ViewPosition.Equals(GridCameraPosition, 500.0)) return Fail(TEXT("player missed the camera foundation"));
+            UE_LOG(LogSaveCheckProjectionMemory, Display, TEXT("vanilla_camera=%s rotation=%s"),
+                *ViewPosition.ToString(), *ViewRotation.ToString());
+            Save->SetModMetadata(FString());
+            Save->SaveGame(Slot, FOnSaveGameComplete::CreateLambda([Slot](bool bSaved, const FText& Error, void*)
+            {
+                UE_LOG(LogSaveCheckProjectionMemory, Display, TEXT("vanilla_fixture=%d slot=%s %s"), bSaved, *Slot, *Error.ToString());
                 FPlatformMisc::RequestExit(false);
             }), nullptr);
             return false;
