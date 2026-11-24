@@ -15,7 +15,7 @@ bool Measurable(const FBox& Box)
         && Box.GetSize().GetMin() > UE_SMALL_NUMBER;
 }
 
-bool CapturePart(AFGBuildable& Source, USceneComponent& Root, const FTransform& Anchor, FShadowPart& Part)
+bool CapturePart(AFGBuildable& Source, USceneComponent& Root, const FTransform& Anchor, FShadowPart& Part, bool bCaptureMeshes)
 {
     const FTransform Frame = Root.GetComponentTransform();
     Part.SourceClass = Source.GetClass()->GetPathName();
@@ -33,6 +33,7 @@ bool CapturePart(AFGBuildable& Source, USceneComponent& Root, const FTransform& 
         const FBox VisualBounds = Component->CalcBounds(InPart).GetBox();
         if (!Measurable(VisualBounds)) continue;
         Bounds += VisualBounds;
+        if (!bCaptureMeshes) continue;
         UStaticMeshComponent* Static = Cast<UStaticMeshComponent>(Visual);
         if (!Static || Static->IsA<USplineMeshComponent>() || !IsValid(Static->GetStaticMesh())
             || !Static->GetStaticMesh()->IsAsset())
@@ -65,18 +66,16 @@ bool CapturePart(AFGBuildable& Source, USceneComponent& Root, const FTransform& 
     Part.BoundsSize = Bounds.GetSize();
     return true;
 }
-}
 
-bool CaptureBlueprint(AFGBlueprintHologram& Preview, FShadowPlacement& Out, FString& Error)
+bool CaptureBlueprintParts(AFGBlueprintHologram& Preview, TArray<FShadowPart>& Parts, bool bCaptureMeshes, FString& Error)
 {
     check(IsInGameThread());
+    Parts.Reset();
     if (!IsValid(Preview.mBlueprintDescriptor) || Preview.mBuildableToNewRoot.IsEmpty())
     {
         Error = TEXT("Blueprint preview has no object roots yet. Try again after it appears.");
         return false;
     }
-    Out.BlueprintId = Preview.mBlueprintDescriptor->GetBlueprintNameAsString();
-    Out.Transform = Preview.GetActorTransform();
     // The temporary world can already be released. While it is still available,
     // use its source list to detect an incomplete preview (including special mod buildings).
     auto* Library = AFGBlueprintSubsystem::Get(Preview.GetWorld());
@@ -91,15 +90,32 @@ bool CaptureBlueprint(AFGBlueprintHologram& Preview, FShadowPlacement& Out, FStr
             }
         }
     }
+    const FTransform Anchor = Preview.GetActorTransform();
     for (const auto& Pair : Preview.mBuildableToNewRoot)
     {
         if (!IsValid(Pair.Key.Get()) || !IsValid(Pair.Value.Get()) || !Pair.Value->IsRegistered()
-            || !CapturePart(*Pair.Key.Get(), *Pair.Value.Get(), Out.Transform, Out.Parts.AddDefaulted_GetRef()))
+            || !CapturePart(*Pair.Key.Get(), *Pair.Value.Get(), Anchor, Parts.AddDefaulted_GetRef(), bCaptureMeshes))
         {
             Error = FString::Printf(TEXT("Incomplete preview, no plan placed. Object: %s"), *GetNameSafe(Pair.Key.Get()));
+            Parts.Reset();
             return false;
         }
     }
+    return true;
+}
+}
+
+bool CaptureBlueprintGeometry(AFGBlueprintHologram& Preview, TArray<FShadowPart>& Parts)
+{
+    FString Error;
+    return CaptureBlueprintParts(Preview, Parts, false, Error);
+}
+
+bool CaptureBlueprint(AFGBlueprintHologram& Preview, FShadowPlacement& Out, FString& Error)
+{
+    if (!CaptureBlueprintParts(Preview, Out.Parts, true, Error)) return false;
+    Out.BlueprintId = Preview.mBlueprintDescriptor->GetBlueprintNameAsString();
+    Out.Transform = Preview.GetActorTransform();
     Out.Id = FGuid::NewGuid();
     Out.BlueprintSourceProof = GetBlueprintSourceProof(Preview);
     return true;

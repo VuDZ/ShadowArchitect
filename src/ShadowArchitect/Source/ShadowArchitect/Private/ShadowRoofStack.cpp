@@ -12,7 +12,11 @@ void AShadowPlanSubsystem::PlaceBlueprintOnRoof(const FGuid& Id)
     const auto* Lower = Plans.FindByPredicate([&Id](const FShadowPlacement& Plan) { return Plan.Id == Id; });
     const auto* View = Views.FindRef(Id).Get();
     if (!IsValid(PC) || !PC->IsLocalController() || !CanUsePlanControls(*PC)
-        || !Lower || !View || View->IsHidden() || ViewMode == EShadowView::Footprint) return;
+        || !Lower || !View || View->IsHidden() || ViewMode == EShadowView::Footprint)
+    {
+        Notify(TEXT("Place Blueprint on roof requires gameplay input and a visible plan in Ghost or Wireframe view."));
+        return;
+    }
 
     auto* Preview = Cast<AFGBlueprintHologram>(CurrentPreview());
     if (!IsValid(Preview))

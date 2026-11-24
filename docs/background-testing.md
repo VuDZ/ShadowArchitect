@@ -149,3 +149,12 @@ ViewChord=(Key=F11,bAlt=True)
 ## S05. Второй Blueprint на перекрытии
 
 В отдельном клиенте загрузите `SAQ_BASE_01`, укажите каталог с копией `3х3 пустой.sbp` и `3х3 пустой.sbpcfg` через `-FGBlueprintDir` и передайте `-SaveCheckRoofStack=<абсолютный путь к новому каталогу кадров>`. SaveCheck создаёт нижний план через F7, ставит второй через меню F6 и сравнивает координаты, части и опоры. Затем открывает **Open build preview** на верхнем плане и подаёт штатный ЛКМ. Прогон отключает стоимость и автосохранение в тестовом мире. Для результата смотрите `LogSaveCheckRoofStack`, в том числе `contacts`, `new_groups` и `matched_positions`. Выходного слота нет. [S05](tasks/archive/s-building-alignment/05-stack-blueprint-on-roof.md)
+
+## H01–H04. Размещение на голограммах
+
+Загрузите отдельный тестовый слот `SAQ_BASE_01` и укажите копии пар `.sbp` и `.sbpcfg` для «3х3 пустой», «3 литейных» и «2 сборщика кабелей». Каждому прогону задайте новый профиль `-UserDir` и каталог кадров. Для увеличенного масштаба панели H03 добавьте `-ini:Engine:[/Script/Engine.UserInterfaceSettings]:ApplicationScale=1.35` отдельным аргументом. [Сцена и критерии](tasks/archive/h-hologram-placement/)
+
+- **H01.** `-SaveCheckPlacementSupport=<кадры> -SaveCheckWrite=SAQ_H01_SUPPORT_01` переключает опору, переназначает клавишу и измеряет позы на обоих краях перекрытия. Загрузите выходной слот с `-SaveCheckPlacementSupportReload` и сопоставьте GUID и позу из `LogSaveCheckPlacementSupport`.
+- **H02.** `-SaveCheckPlacementConflict=<кадры>` проверяет свободную позу, касание, наложение и штатный запрет. `LogSaveCheckPlacementConflict` выводит статус, цвет предпросмотра и штатные причины отказа.
+- **H03.** `-SaveCheckPlanningControls=<кадры>` проверяет строки панели при переключении режима, переназначении, открытии меню и чата. Сопоставьте кадры с `LogSaveCheckPlanningControls`.
+- **H04.** `-SaveCheckRoofStack=<кадры> -SaveCheckPlanMenuPointer` подаёт в Slate наведение, нажатие и отпускание ЛКМ в координатах кнопок. Сверьте кадры трёх состояний, `LogShadowPlanMenu` с GUID и результат `LogSaveCheckRoofStack`. Сценарий включает увеличенный масштаб и выход по Esc.

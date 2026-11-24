@@ -23,10 +23,12 @@ public:
     {
         InstallBlueprintSourceHooks();
         AShadowPlanSubsystem::InstallPlanConstructionHooks();
+        AShadowPlanSubsystem::InstallPlacementSupportHooks();
     }
 
     void ShutdownModule() override
     {
+        AShadowPlanSubsystem::RemovePlacementSupportHooks();
         AShadowPlanSubsystem::RemovePlanConstructionHooks();
         RemoveBlueprintSourceHooks();
     }
@@ -72,7 +74,9 @@ EExecutionStatus AShadowPlaceCommand::ExecuteCommand_Implementation(UCommandSend
 AShadowPlanSubsystem::AShadowPlanSubsystem()
 {
     ReplicationPolicy = ESubsystemReplicationPolicy::SpawnOnServer;
-    PrimaryActorTick.bCanEverTick = false;
+    PrimaryActorTick.bCanEverTick = true;
+    PrimaryActorTick.bStartWithTickEnabled = false;
+    PrimaryActorTick.TickGroup = TG_PostUpdateWork;
 }
 
 void AShadowPlanSubsystem::BeginPlay()
@@ -87,6 +91,7 @@ void AShadowPlanSubsystem::BeginPlay()
             *GetNameSafe(ProxyCube.Get()), *GetNameSafe(ShadowMaterial.Get()));
     Restore();
     BindControls();
+    SetActorTickEnabled(true);
 }
 
 AFGHologram* AShadowPlanSubsystem::CurrentPreview() const
@@ -323,7 +328,9 @@ void AShadowPlanSubsystem::PostLoadGame_Implementation(int32 SaveVersion, int32 
 
 void AShadowPlanSubsystem::EndPlay(const EEndPlayReason::Type Reason)
 {
+    PlacementFeedback.Reset();
     GetWorldTimerManager().ClearTimer(InputRetry);
+    PlanningControls.Reset();
     DisableInput(GetWorld()->GetFirstPlayerController());
     ClearViews();
     Super::EndPlay(Reason);

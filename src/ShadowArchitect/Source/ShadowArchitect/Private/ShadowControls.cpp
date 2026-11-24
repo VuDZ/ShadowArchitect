@@ -35,6 +35,7 @@ void AShadowPlanSubsystem::BindControls()
     };
     FControl Controls[] = {
         { TEXT("ShadowArchitect.Place"), &AShadowPlanSubsystem::Place },
+        { TEXT("ShadowArchitect.PlacementSupport"), &AShadowPlanSubsystem::TogglePlacementSupport },
         { TEXT("ShadowArchitect.Select"), &AShadowPlanSubsystem::SelectNext },
         { TEXT("ShadowArchitect.SelectUnderCrosshair"), &AShadowPlanSubsystem::SelectPlanUnderCrosshair },
         { TEXT("ShadowArchitect.Move"), &AShadowPlanSubsystem::MoveSelected },
@@ -70,6 +71,7 @@ void AShadowPlanSubsystem::BindControls()
     Input->UInputComponent::BindKey(BuildBinding, IE_Pressed, this,
         &AShadowPlanSubsystem::OpenSelectedBuildPreview).bConsumeInput = false;
     EnableInput(PC);
+    StartPlanningControls();
 
     const FString Key = KeybindingHint(*PC, TEXT("ShadowArchitect.Place"));
     const FString Hint = Key.IsEmpty() ? TEXT("/shadowplace") : Key + TEXT(" or /shadowplace");

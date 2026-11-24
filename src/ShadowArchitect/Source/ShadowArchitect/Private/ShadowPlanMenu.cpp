@@ -1,5 +1,6 @@
 #include "ShadowPlan.h"
 
+#include "Brushes/SlateColorBrush.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
@@ -7,10 +8,12 @@
 #include "Framework/Application/IInputProcessor.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Hologram/FGBlueprintHologram.h"
+#include "Slate/SGameLayerManager.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SScaleBox.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
 
@@ -31,6 +34,14 @@ enum class EPlanMenuAction
     Cancel
 };
 
+const FButtonStyle& PlanMenuButtonStyle()
+{
+    static const FButtonStyle Style = FButtonStyle(FCoreStyle::Get().GetWidgetStyle<FButtonStyle>("Button"))
+        .SetNormal(FSlateColorBrush(FLinearColor(0.07f, 0.095f, 0.12f)))
+        .SetHovered(FSlateColorBrush(FLinearColor(0.11f, 0.26f, 0.34f)))
+        .SetPressed(FSlateColorBrush(FLinearColor(0.18f, 0.40f, 0.47f)));
+    return Style;
+}
 }
 
 class FShadowPlanMenu : public IInputProcessor, public TSharedFromThis<FShadowPlanMenu>
@@ -44,12 +55,13 @@ public:
 
     void Show();
     void Close();
+    bool IsOpen() const { return Widget.IsValid(); }
     bool ConfirmPendingMove();
 
 private:
     void Hide();
     void Cancel();
-    FReply Choose(EPlanMenuAction Action);
+    FReply Choose(EPlanMenuAction Action, FText Label);
     TSharedRef<SButton> Button(FText Label, EPlanMenuAction Action);
     const FShadowPlacement* FindTarget() const;
 
@@ -71,25 +83,32 @@ private:
 const FShadowPlacement* FShadowPlanMenu::FindTarget() const
 {
     const auto* Owner = Plans.Get();
-    if (!Owner || !Owner->Views.FindRef(Target).IsValid()) return nullptr;
+    const auto* View = Owner ? Owner->Views.FindRef(Target).Get() : nullptr;
+    if (!View || View->IsHidden()) return nullptr;
     return Owner->Plans.FindByPredicate([this](const FShadowPlacement& Plan) { return Plan.Id == Target; });
 }
 
 TSharedRef<SButton> FShadowPlanMenu::Button(FText Label, EPlanMenuAction Action)
 {
     return SNew(SButton)
+        .ButtonStyle(&PlanMenuButtonStyle())
         .HAlign(HAlign_Center)
         .ContentPadding(FMargin(12, 8))
-        .Text(MoveTemp(Label))
-        .OnClicked(FOnClicked::CreateSP(AsShared(), &FShadowPlanMenu::Choose, Action));
+        .OnClicked(FOnClicked::CreateSP(AsShared(), &FShadowPlanMenu::Choose, Action, Label))
+        [
+            SNew(STextBlock)
+            .Text(MoveTemp(Label))
+            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 16))
+            .ColorAndOpacity(FLinearColor::White)
+        ];
 }
 
 void FShadowPlanMenu::Show()
 {
     auto* PC = Player.Get();
     auto* GameViewport = Viewport.Get();
-    auto* LocalPlayer = PC ? PC->GetLocalPlayer() : nullptr;
-    if (Widget || !LocalPlayer || !GameViewport || !AShadowPlanSubsystem::CanUsePlanControls(*PC)) return;
+    const auto Layers = GameViewport ? GameViewport->GetGameLayerManager() : nullptr;
+    if (Widget || !PC || !PC->GetLocalPlayer() || !Layers || !AShadowPlanSubsystem::CanUsePlanControls(*PC)) return;
 
     const auto* Plan = FindTarget();
     if (!Plan)
@@ -109,7 +128,7 @@ void FShadowPlanMenu::Show()
     [
         SNew(STextBlock)
         .Text(Title)
-        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 18))
+        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 22))
         .AutoWrapText(true)
     ];
     if (bPendingMove)
@@ -137,25 +156,36 @@ void FShadowPlanMenu::Show()
     Content->AddSlot().AutoHeight()[ CancelButton ];
 
     const FSlateBrush* Panel = FCoreStyle::Get().GetBrush("WhiteBrush");
+    const auto ConsumeClick = [](const FGeometry&, const FPointerEvent&) { return FReply::Handled(); };
     Widget = SNew(SBorder)
+        .Cursor(EMouseCursor::Default)
         .BorderImage(Panel)
-        .BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.55f))
+        .BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.72f))
+        .Padding(12)
         .HAlign(HAlign_Center)
         .VAlign(VAlign_Center)
+        .OnMouseButtonDown_Lambda(ConsumeClick)
+        .OnMouseButtonUp_Lambda(ConsumeClick)
+        .OnMouseDoubleClick_Lambda(ConsumeClick)
         [
-            SNew(SBox).WidthOverride(340)
+            SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
             [
-                SNew(SBorder)
-                .BorderImage(Panel)
-                .BorderBackgroundColor(FLinearColor(0.028f, 0.034f, 0.041f))
-                .Padding(18)
-                [ Content ]
+                SNew(SBox).WidthOverride(380)
+                [
+                    SNew(SBorder)
+                    .BorderImage(Panel)
+                    .BorderBackgroundColor(FLinearColor(0.028f, 0.034f, 0.041f))
+                    .Padding(18)
+                    [ Content ]
+                ]
             ]
         ];
     bPreviousCursor = PC->bShowMouseCursor;
     PC->bShowMouseCursor = true;
-    GameViewport->AddViewportWidgetForPlayer(LocalPlayer, Widget.ToSharedRef(), 100);
+    // The Build Gun HUD can render above widgets in the player and viewport overlays.
+    Layers->AddGameLayer(Widget.ToSharedRef(), static_cast<int32>(SGameLayerManager::EGameLayerOrder::Debug) + 10);
     PC->SetInputMode(FInputModeUIOnly().SetWidgetToFocus(CancelButton));
+    PC->FlushPressedKeys();
     UE_LOG(LogShadowPlanMenu, Display, TEXT("Opened %s for %s [%s]."),
         bPendingMove ? TEXT("move confirmation") : TEXT("plan menu"), *Plan->BlueprintId, *Target.ToString());
 }
@@ -163,11 +193,11 @@ void FShadowPlanMenu::Show()
 void FShadowPlanMenu::Hide()
 {
     if (!Widget) return;
+    if (auto* GameViewport = Viewport.Get())
+        if (const auto Layers = GameViewport->GetGameLayerManager())
+            Layers->RemoveGameLayer(Widget.ToSharedRef());
     if (auto* PC = Player.Get())
     {
-        auto* GameViewport = Viewport.Get();
-        if (GameViewport && PC->GetLocalPlayer())
-            GameViewport->RemoveViewportWidgetForPlayer(PC->GetLocalPlayer(), Widget.ToSharedRef());
         PC->bShowMouseCursor = bPreviousCursor;
         PC->SetInputMode(FInputModeGameOnly());
     }
@@ -203,10 +233,17 @@ bool FShadowPlanMenu::ConfirmPendingMove()
     return true;
 }
 
-FReply FShadowPlanMenu::Choose(EPlanMenuAction Action)
+FReply FShadowPlanMenu::Choose(EPlanMenuAction Action, FText Label)
 {
     if (auto* Owner = Plans.Get(); Owner && Widget)
     {
+        UE_LOG(LogShadowPlanMenu, Display, TEXT("Chose %s for plan [%s]."), *Label.ToString(), *Target.ToString());
+        if (Action != EPlanMenuAction::Cancel && !FindTarget())
+        {
+            Owner->ClosePlanMenu();
+            Owner->Notify(TEXT("That plan is no longer available."));
+            return FReply::Handled();
+        }
         switch (Action)
         {
         case EPlanMenuAction::Move:
@@ -270,6 +307,7 @@ bool FShadowPlanMenu::HandleKeyUpEvent(FSlateApplication&, const FKeyEvent& Even
     if (Event.GetKey() != EKeys::Escape || !bCapturedEscape) return false;
     bCapturedEscape = false;
     const auto KeepAlive = AsShared();
+    UE_LOG(LogShadowPlanMenu, Display, TEXT("Closed with Esc for plan [%s]."), *Target.ToString());
     Cancel();
     return true;
 }
@@ -302,6 +340,11 @@ void AShadowPlanSubsystem::OpenPlanMenu()
 void AShadowPlanSubsystem::ClosePlanMenu()
 {
     if (auto Closing = MoveTemp(PlanMenu)) Closing->Close();
+}
+
+bool AShadowPlanSubsystem::IsPlanMenuOpen() const
+{
+    return PlanMenu && PlanMenu->IsOpen();
 }
 
 bool AShadowPlanSubsystem::ConfirmPendingPlanMove()

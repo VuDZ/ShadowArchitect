@@ -21,7 +21,9 @@ FTickerDelegate MakeMenuCheck(FString OutputDir);
 FTickerDelegate MakePlanActionsCheck(FString Mode);
 FTickerDelegate MakeEditingCheck(FString Mode, FString Slot, FString MoveSlot, FString Frames, int32 ExpectedCount);
 FTickerDelegate MakeAlignmentCheck(FString Frames, bool bGuide);
-FTickerDelegate MakeRoofStackCheck(FString Directory);
+FTickerDelegate MakePlacementSupportCheck(FString Directory, FString OutputSlot, bool bReload);
+FTickerDelegate MakePlacementConflictCheck(FString Directory);
+FTickerDelegate MakeRoofStackCheck(FString Directory, bool bPlanningControls = false);
 
 class FSaveCheck : public IModuleInterface
 {
@@ -90,6 +92,15 @@ class FSaveCheck : public IModuleInterface
 public:
     virtual void StartupModule() override
     {
+        FString SupportFrames, SupportSlot;
+        const bool bReloadSupport = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckPlacementSupportReload"));
+        if (bReloadSupport || FParse::Value(FCommandLine::Get(), TEXT("SaveCheckPlacementSupport="), SupportFrames))
+        {
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckWrite="), SupportSlot);
+            Handle = FTSTicker::GetCoreTicker().AddTicker(
+                MakePlacementSupportCheck(MoveTemp(SupportFrames), MoveTemp(SupportSlot), bReloadSupport), 0.12f);
+            return;
+        }
         FString EditingMode;
         if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckEditing="), EditingMode))
         {
@@ -112,9 +123,16 @@ public:
             return;
         }
         FString RoofStackFrames;
-        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckRoofStack="), RoofStackFrames))
+        const bool bPlanningControls = FParse::Value(FCommandLine::Get(), TEXT("SaveCheckPlanningControls="), RoofStackFrames);
+        if (bPlanningControls || FParse::Value(FCommandLine::Get(), TEXT("SaveCheckRoofStack="), RoofStackFrames))
         {
-            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeRoofStackCheck(MoveTemp(RoofStackFrames)), 0.12f);
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeRoofStackCheck(MoveTemp(RoofStackFrames), bPlanningControls), 0.12f);
+            return;
+        }
+        FString ConflictFrames;
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckPlacementConflict="), ConflictFrames))
+        {
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakePlacementConflictCheck(MoveTemp(ConflictFrames)), 0.12f);
             return;
         }
         FString AlignmentFrames;

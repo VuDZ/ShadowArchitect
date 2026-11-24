@@ -124,6 +124,7 @@ bool AShadowProjection::BuildFootprint(const FShadowPlacement& Plan, UStaticMesh
     if (!Relative.IsValid()) return false;
 
     AddMesh(Cube, Material, Relative);
+    LocalPlanBounds = Footprint;
     return true;
 }
 
@@ -146,11 +147,10 @@ bool AShadowProjection::BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cu
     UMaterialInterface& MeshMaterial, UMaterialInterface& ProxyMaterial)
 {
     check(IsInGameThread());
-    if (Plan.SchemaVersion != 1 || Plan.Parts.IsEmpty() || !Plan.Transform.IsValid()) return false;
+    const FBox Footprint = CalculateFootprint(Plan.Parts);
+    if (Plan.SchemaVersion != 1 || !Footprint.IsValid || !Plan.Transform.IsValid()) return false;
     for (const FShadowPart& Part : Plan.Parts)
     {
-        if (!HasValidPartGeometry(Part)) return false;
-
         // Resolve the complete building before adding any components. A removed mod mesh
         // should produce one measured proxy, without overlapping scraps of the building.
         TArray<UStaticMesh*> Assets;
@@ -175,5 +175,6 @@ bool AShadowProjection::BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cu
                 AddMesh(*Assets[Index], MeshMaterial, Part.Meshes[Index].InPart * Part.InPlan);
         }
     }
+    LocalPlanBounds = Footprint;
     return true;
 }

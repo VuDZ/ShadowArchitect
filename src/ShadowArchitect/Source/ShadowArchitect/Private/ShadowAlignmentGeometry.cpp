@@ -34,45 +34,58 @@ bool IsSupportedShadowRoof(const FShadowPart& Part)
     return Part.SourceClass == FlatRoof || Part.SourceClass == ConcreteFoundation;
 }
 
+TArray<FShadowRoofBox, TInlineAllocator<4>> GetShadowRoofBoxes(const FShadowPart& Part, const FTransform& PartFrame)
+{
+    TArray<FShadowRoofBox, TInlineAllocator<4>> Boxes;
+    if (!IsSupportedShadowRoof(Part) || !PartFrame.IsValid()) return Boxes;
+    if (Part.SourceClass == ConcreteFoundation)
+    {
+        if (PartFrame.GetScale3D().GetAbs().Equals(FVector::OneVector, UE_KINDA_SMALL_NUMBER)
+            && PartFrame.GetUnitAxis(EAxis::Z).Equals(FVector::UpVector, UE_KINDA_SMALL_NUMBER))
+            Boxes.Add({ PartFrame, FVector(400, 400, 50) });
+        return Boxes;
+    }
+
+    if (!PartFrame.GetScale3D().Equals(FVector::OneVector, UE_KINDA_SMALL_NUMBER)) return Boxes;
+    for (const FShadowMesh& Mesh : Part.Meshes)
+    {
+        if (!Mesh.InPart.IsValid() || Mesh.Asset.ToSoftObjectPath().GetAssetName() != TEXT("SM_Roof_Steel_01")) continue;
+        UStaticMesh* Asset = Mesh.Asset.LoadSynchronous();
+        const UBodySetup* Body = IsValid(Asset) ? Asset->GetBodySetup() : nullptr;
+        if (!Body) continue;
+
+        const FTransform MeshFrame = Mesh.InPart * PartFrame;
+        for (const FKBoxElem& Box : Body->AggGeom.BoxElems)
+            Boxes.Add({ Box.GetTransform() * MeshFrame, FVector(Box.X, Box.Y, Box.Z) * 0.5 });
+    }
+    return Boxes;
+}
+
 bool TraceShadowRoofTop(const FShadowPart& Part, const FTransform& PartFrame, const FVector& Start,
     const FVector& End, double& Limit, FVector& Surface)
 {
-    if (!IsSupportedShadowRoof(Part) || !PartFrame.IsValid()) return false;
-
+    const auto Boxes = GetShadowRoofBoxes(Part, PartFrame);
+    if (Boxes.IsEmpty()) return false;
     if (Part.SourceClass == ConcreteFoundation)
     {
-        if (!PartFrame.GetScale3D().GetAbs().Equals(FVector::OneVector, UE_KINDA_SMALL_NUMBER)
-            || !PartFrame.GetUnitAxis(EAxis::Z).Equals(FVector::UpVector, UE_KINDA_SMALL_NUMBER)) return false;
-        constexpr double HalfHeight = 50.0;
-        constexpr double HalfWidth = 400.0;
-        const double Top = PartFrame.GetLocation().Z + HalfHeight;
+        const FVector& HalfSize = Boxes[0].HalfSize;
+        const double Top = PartFrame.GetLocation().Z + HalfSize.Z;
         if (Start.Z <= Top || End.Z >= Start.Z) return false;
         const double Time = (Top - Start.Z) / (End.Z - Start.Z);
         if (Time >= Limit) return false;
         const FVector Hit = FMath::Lerp(Start, End, Time);
         const FVector Local = PartFrame.InverseTransformPosition(Hit);
-        if (FMath::Abs(Local.X) > HalfWidth || FMath::Abs(Local.Y) > HalfWidth) return false;
+        if (FMath::Abs(Local.X) > HalfSize.X || FMath::Abs(Local.Y) > HalfSize.Y) return false;
         Limit = Time;
         Surface = Hit;
         return true;
     }
 
-    if (!PartFrame.GetScale3D().Equals(FVector::OneVector, UE_KINDA_SMALL_NUMBER)) return false;
     FVector Normal = FVector::ZeroVector;
     FVector Hit = FVector::ZeroVector;
     double Closest = Limit;
-    for (const FShadowMesh& Mesh : Part.Meshes)
-    {
-        UStaticMesh* Asset = Mesh.Asset.Get();
-        const UBodySetup* Body = IsValid(Asset) && Asset->GetFName() == TEXT("SM_Roof_Steel_01")
-            ? Asset->GetBodySetup() : nullptr;
-        if (!Body || !Mesh.InPart.IsValid()) continue;
-
-        const FTransform MeshFrame = Mesh.InPart * PartFrame;
-        for (const FKBoxElem& Box : Body->AggGeom.BoxElems)
-            TraceRoofBox(Box.GetTransform() * MeshFrame, FVector(Box.X, Box.Y, Box.Z) * 0.5,
-                Start, End, Closest, Hit, Normal);
-    }
+    for (const auto& Box : Boxes)
+        TraceRoofBox(Box.Frame, Box.HalfSize, Start, End, Closest, Hit, Normal);
     if (!Normal.Equals(FVector::UpVector, UE_KINDA_SMALL_NUMBER)) return false;
     Limit = Closest;
     Surface = Hit;

@@ -14,6 +14,8 @@ class AFGHologram;
 class FShadowAlignmentGuide;
 class FShadowClearInView;
 class FShadowPlanMenu;
+class FShadowPlacementFeedback;
+class FShadowPlanningControls;
 class IFileHandle;
 class UFGBuildGunStateBuild;
 class UFGBlueprintDescriptor;
@@ -64,6 +66,7 @@ struct FShadowAlignmentSegment
 };
 
 bool CaptureBlueprint(AFGBlueprintHologram& Preview, FShadowPlacement& Out, FString& Error);
+bool CaptureBlueprintGeometry(AFGBlueprintHologram& Preview, TArray<FShadowPart>& Parts);
 FBox CalculateFootprint(const TArray<FShadowPart>& Parts);
 int32 FindShadowPartOnRay(const FShadowPlacement& Plan, const FVector& Start, const FVector& Delta, double& Limit);
 
@@ -83,11 +86,13 @@ public:
     bool Build(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material);
     bool BuildFootprint(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material);
     bool BuildWireframe(const FShadowPlacement& Plan, UStaticMesh& Cube);
+    const FBox& GetLocalPlanBounds() const { return LocalPlanBounds; }
     void SetSelectionMarker(const FBox& Footprint);
 protected:
     virtual void Tick(float DeltaSeconds) override;
 private:
     UPROPERTY(Transient) TObjectPtr<UTextRenderComponent> SelectionMarker;
+    FBox LocalPlanBounds{ForceInit};
     bool BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cube,
         UMaterialInterface& MeshMaterial, UMaterialInterface& ProxyMaterial);
     void AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative);
@@ -114,6 +119,7 @@ public:
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
+    virtual void Tick(float DeltaSeconds) override;
 private:
     friend class FShadowArchitectModule;
     friend class FShadowClearInView;
@@ -126,11 +132,17 @@ private:
     UPROPERTY(Transient) TObjectPtr<UMaterialInterface> ShadowMaterial;
     UPROPERTY(Config) FInputChord BuildPreviewChord;
     EShadowView ViewMode = EShadowView::Ghost;
+    bool bUsePlanSupport = false;
+    TWeakObjectPtr<AFGBlueprintHologram> SupportGeometryPreview;
+    TWeakObjectPtr<UFGBlueprintDescriptor> SupportGeometrySource;
+    int32 SupportGeometryPartCount = 0;
+    FBox SupportGeometryBounds{ForceInit};
     TMap<FGuid, TWeakObjectPtr<AShadowProjection>> Views;
     FGuid Selected;
     TSharedPtr<FShadowClearInView> ClearInView;
     TSharedPtr<FShadowPlanMenu> PlanMenu;
     TSharedPtr<FShadowAlignmentGuide> AlignmentGuide;
+    TSharedPtr<FShadowPlacementFeedback> PlacementFeedback;
     UPROPERTY(Transient) TArray<FShadowAlignmentSegment> AlignmentLines;
     FGuid AlignmentPlan;
     FTimerHandle AlignmentRefresh;
@@ -140,11 +152,14 @@ private:
     TWeakObjectPtr<UFGBlueprintDescriptor> ClosingBuildSource;
     bool bConfirmingPlanBuild = false;
     FTimerHandle InputRetry;
+    TSharedPtr<FShadowPlanningControls> PlanningControls;
     void Restore();
     bool ShowPlan(const FShadowPlacement& Plan);
     bool BuildView(AShadowProjection& View, const FShadowPlacement& Plan, EShadowView Mode) const;
     void ClearViews();
     void BindControls();
+    void StartPlanningControls();
+    bool RefreshPlanningControls(float DeltaTime);
     static bool CanUsePlanControls(const APlayerController& Player);
     bool ImportLegacyKeybindings(APlayerController& Player);
     FString KeybindingHint(APlayerController& Player, FName Mapping) const;
@@ -153,6 +168,10 @@ private:
     AFGHologram* ActivePreview() const;
     bool AddCapturedPlan(FShadowPlacement Plan, FString& Result);
     void Place();
+    void TogglePlacementSupport();
+    static void InstallPlacementSupportHooks();
+    static void RemovePlacementSupportHooks();
+    void TracePlacementSupport(AFGBlueprintHologram& Preview, const APlayerController& Player, double Range, FHitResult& Hit);
     void PlaceBlueprintOnRoof(const FGuid& Id);
     void SelectNext();
     void SelectPlanUnderCrosshair();
@@ -169,8 +188,10 @@ private:
     void ToggleAlignmentGuide(const FGuid& Id);
     void RefreshAlignmentGuide();
     void ClearAlignmentGuide();
+    void RefreshPlacementFeedback();
     void OpenPlanMenu();
     void ClosePlanMenu();
+    bool IsPlanMenuOpen() const;
     void RequestClearInView();
     void CloseClearInView();
     bool ConfirmPendingPlanMove();

@@ -32,6 +32,7 @@
 #include "Layout/WidgetPath.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/Paths.h"
+#include "PlanMenuPointer.h"
 #include "Resources/FGBuildingDescriptor.h"
 #include "UI/FGButtonWidget.h"
 #include "UI/FGGameUI.h"
@@ -98,6 +99,43 @@ bool ClickPlanMenuButton(FStringView Label)
         return Button->OnKeyUp(Geometry, Event).IsEventHandled() && bPressed;
     }
     return false;
+}
+
+bool IsPlanMenuButtonVisible(FStringView Label)
+{
+    return FindMenuButton(Label).IsValid();
+}
+
+bool SendPlanMenuEscape()
+{
+    return SlateKey(EKeys::Escape);
+}
+
+bool SendPlanMenuPointer(FStringView Label, EPlanMenuPointer Action)
+{
+    const auto Widget = FindMenuButton(Label);
+    if (!Widget) return false;
+    const auto Button = StaticCastSharedPtr<SButton>(Widget);
+    const auto& Geometry = Button->GetTickSpaceGeometry();
+    const FVector2D Position = Geometry.LocalToAbsolute(Geometry.GetLocalSize() * 0.5);
+    auto& Slate = FSlateApplication::Get();
+    const auto Path = Slate.LocateWindowUnderMouse(Position, Slate.GetInteractiveTopLevelWindows());
+    if (!Path.IsValid() || !Path.ContainsWidget(Button.Get())) return false;
+
+    const FVector2D Previous = Slate.GetCursorPos();
+    Slate.SetCursorPos(Position);
+    TSet<FKey> Pressed;
+    if (Action == EPlanMenuPointer::Down) Pressed.Add(EKeys::LeftMouseButton);
+    const FPointerEvent Event(FSlateApplication::CursorPointerIndex, Position, Previous, Pressed,
+        Action == EPlanMenuPointer::Hover ? FKey() : EKeys::LeftMouseButton, 0.0f, FModifierKeysState());
+    if (Action == EPlanMenuPointer::Hover)
+    {
+        Slate.ProcessMouseMoveEvent(Event);
+        return Button->IsHovered();
+    }
+    if (Action == EPlanMenuPointer::Down)
+        return Slate.ProcessMouseButtonDownEvent(Path.GetWindow()->GetNativeWindow(), Event) && Button->IsPressed();
+    return Button->IsPressed() && Slate.ProcessMouseButtonUpEvent(Event) && !Button->IsPressed();
 }
 
 namespace

@@ -5,6 +5,12 @@
 struct FShadowPart;
 struct FShadowPlacement;
 
+struct FShadowRoofBox
+{
+    FTransform Frame;
+    FVector HalfSize;
+};
+
 struct FShadowFoundationGuide
 {
     float HitTime = 1;
@@ -27,5 +33,6 @@ bool GetShadowFoundationGrid(const FShadowPlacement& Plan, const FShadowPart& Pa
     const UClass& PreviewBuildClass, FShadowFoundationGrid& Out);
 
 bool IsSupportedShadowRoof(const FShadowPart& Part);
+TArray<FShadowRoofBox, TInlineAllocator<4>> GetShadowRoofBoxes(const FShadowPart& Part, const FTransform& PartFrame);
 bool TraceShadowRoofTop(const FShadowPart& Part, const FTransform& PartFrame, const FVector& Start,
     const FVector& End, double& Limit, FVector& Surface);
