@@ -16,6 +16,7 @@ class FShadowClearInView;
 class FShadowPlanMenu;
 class FShadowPlacementFeedback;
 class FShadowPlanningControls;
+class FShadowProjectionProfile;
 class IFileHandle;
 class UFGBuildGunStateBuild;
 class UFGBlueprintDescriptor;
@@ -83,9 +84,9 @@ class AShadowProjection : public AActor
     GENERATED_BODY()
 public:
     AShadowProjection();
-    bool Build(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material);
-    bool BuildFootprint(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material);
-    bool BuildWireframe(const FShadowPlacement& Plan, UStaticMesh& Cube);
+    bool Build(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material, FShadowProjectionProfile* Profile = nullptr);
+    bool BuildFootprint(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material, FShadowProjectionProfile* Profile = nullptr);
+    bool BuildWireframe(const FShadowPlacement& Plan, UStaticMesh& Cube, FShadowProjectionProfile* Profile = nullptr);
     const FBox& GetLocalPlanBounds() const { return LocalPlanBounds; }
     void SetSelectionMarker(const FBox& Footprint);
 protected:
@@ -94,8 +95,8 @@ private:
     UPROPERTY(Transient) TObjectPtr<UTextRenderComponent> SelectionMarker;
     FBox LocalPlanBounds{ForceInit};
     bool BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cube,
-        UMaterialInterface& MeshMaterial, UMaterialInterface& ProxyMaterial);
-    void AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative);
+        UMaterialInterface& MeshMaterial, UMaterialInterface& ProxyMaterial, FShadowProjectionProfile* Profile);
+    void AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative, FShadowProjectionProfile* Profile);
 };
 
 UCLASS()
@@ -154,8 +155,8 @@ private:
     FTimerHandle InputRetry;
     TSharedPtr<FShadowPlanningControls> PlanningControls;
     void Restore();
-    bool ShowPlan(const FShadowPlacement& Plan);
-    bool BuildView(AShadowProjection& View, const FShadowPlacement& Plan, EShadowView Mode) const;
+    bool ShowPlan(const FShadowPlacement& Plan, FShadowProjectionProfile* Profile = nullptr);
+    bool BuildView(AShadowProjection& View, const FShadowPlacement& Plan, EShadowView Mode, FShadowProjectionProfile* Profile) const;
     void ClearViews();
     void BindControls();
     void StartPlanningControls();

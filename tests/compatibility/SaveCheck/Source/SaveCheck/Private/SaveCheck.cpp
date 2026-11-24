@@ -23,6 +23,8 @@ FTickerDelegate MakeEditingCheck(FString Mode, FString Slot, FString MoveSlot, F
 FTickerDelegate MakeAlignmentCheck(FString Frames, bool bGuide);
 FTickerDelegate MakePlacementSupportCheck(FString Directory, FString OutputSlot, bool bReload);
 FTickerDelegate MakePlacementConflictCheck(FString Directory);
+FTickerDelegate MakeProjectionPerformanceCheck(FString Output, int32 ExpectedPlans, double WindowSeconds, int32 Cycles, FString ReloadSlot);
+FTickerDelegate MakeProjectionFixture(FString Slot, int32 Count);
 FTickerDelegate MakeRoofStackCheck(FString Directory, bool bPlanningControls = false);
 
 class FSaveCheck : public IModuleInterface
@@ -92,6 +94,33 @@ class FSaveCheck : public IModuleInterface
 public:
     virtual void StartupModule() override
     {
+        FString ProjectionOutput;
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionBench="), ProjectionOutput))
+        {
+            int32 Plans = 2;
+            double Seconds = 5.0;
+            int32 Cycles = 1;
+            FString ReloadSlot;
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionPlans="), Plans);
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionSeconds="), Seconds);
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionCycles="), Cycles);
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionReload="), ReloadSlot);
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeProjectionPerformanceCheck(MoveTemp(ProjectionOutput),
+                Plans, FMath::Clamp(Seconds, 1.0, 120.0), FMath::Clamp(Cycles, 1, 3), MoveTemp(ReloadSlot)), 0.1f);
+            return;
+        }
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionEmptySlot="), ProjectionOutput))
+        {
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeProjectionFixture(MoveTemp(ProjectionOutput), 0), 0.15f);
+            return;
+        }
+        if (FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionFixture="), ProjectionOutput))
+        {
+            int32 Plans = 0;
+            FParse::Value(FCommandLine::Get(), TEXT("SaveCheckProjectionPlans="), Plans);
+            Handle = FTSTicker::GetCoreTicker().AddTicker(MakeProjectionFixture(MoveTemp(ProjectionOutput), Plans), 0.15f);
+            return;
+        }
         FString SupportFrames, SupportSlot;
         const bool bReloadSupport = FParse::Param(FCommandLine::Get(), TEXT("SaveCheckPlacementSupportReload"));
         if (bReloadSupport || FParse::Value(FCommandLine::Get(), TEXT("SaveCheckPlacementSupport="), SupportFrames))

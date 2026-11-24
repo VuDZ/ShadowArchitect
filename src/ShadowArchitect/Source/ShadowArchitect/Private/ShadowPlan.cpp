@@ -1,4 +1,5 @@
 #include "ShadowPlan.h"
+#include "ShadowProjectionProfile.h"
 #include "ShadowBlueprintSource.h"
 #include "Command/CommandSender.h"
 #include "Components/ActorComponent.h"
@@ -125,7 +126,7 @@ void AShadowPlanSubsystem::Notify(const FString& Text) const
     }
 }
 
-bool AShadowPlanSubsystem::ShowPlan(const FShadowPlacement& Plan)
+bool AShadowPlanSubsystem::ShowPlan(const FShadowPlacement& Plan, FShadowProjectionProfile* Profile)
 {
     if (!Plan.Id.IsValid() || !Plan.Transform.IsValid()
         || Plan.SchemaVersion != 1 || Views.Contains(Plan.Id)) return false;
@@ -134,7 +135,7 @@ bool AShadowPlanSubsystem::ShowPlan(const FShadowPlacement& Plan)
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     auto* View = GetWorld()->SpawnActor<AShadowProjection>(AShadowProjection::StaticClass(), Plan.Transform, Params);
     if (!IsValid(View)) return false;
-    if (!BuildView(*View, Plan, ViewMode))
+    if (!BuildView(*View, Plan, ViewMode, Profile))
     {
         View->Destroy();
         return false;
@@ -144,17 +145,18 @@ bool AShadowPlanSubsystem::ShowPlan(const FShadowPlacement& Plan)
     return true;
 }
 
-bool AShadowPlanSubsystem::BuildView(AShadowProjection& View, const FShadowPlacement& Plan, EShadowView Mode) const
+bool AShadowPlanSubsystem::BuildView(AShadowProjection& View, const FShadowPlacement& Plan, EShadowView Mode,
+    FShadowProjectionProfile* Profile) const
 {
     if (!ProxyCube) return false;
     switch (Mode)
     {
     case EShadowView::Ghost:
-        return ShadowMaterial && View.Build(Plan, *ProxyCube, *ShadowMaterial);
+        return ShadowMaterial && View.Build(Plan, *ProxyCube, *ShadowMaterial, Profile);
     case EShadowView::Wireframe:
-        return View.BuildWireframe(Plan, *ProxyCube);
+        return View.BuildWireframe(Plan, *ProxyCube, Profile);
     case EShadowView::Footprint:
-        return ShadowMaterial && View.BuildFootprint(Plan, *ProxyCube, *ShadowMaterial);
+        return ShadowMaterial && View.BuildFootprint(Plan, *ProxyCube, *ShadowMaterial, Profile);
     }
     return false;
 }
@@ -270,6 +272,7 @@ void AShadowPlanSubsystem::CycleView()
     constexpr const TCHAR* ModeNames[] = { TEXT("Ghost"), TEXT("Wireframe"), TEXT("Footprint") };
     const int32 NextIndex = (static_cast<int32>(ViewMode) + 1) % UE_ARRAY_COUNT(ModeNames);
     const auto NextMode = static_cast<EShadowView>(NextIndex);
+    FShadowProjectionProfile Profile(TEXT("cycle"), ViewMode, NextMode, Plans.Num(), Views);
 
     struct FViewChange
     {
@@ -283,21 +286,25 @@ void AShadowPlanSubsystem::CycleView()
         auto* View = Views.FindRef(Plan.Id).Get();
         if (!View) continue;
         Changes.Add({ View, View->GetInstanceComponents().Num() });
-        if (!BuildView(*View, Plan, NextMode))
+        if (!BuildView(*View, Plan, NextMode, Profile.Enabled()))
         {
+            Profile.Sample(TEXT("partial"));
             for (const FViewChange& Change : Changes)
                 for (int32 Index = Change.Actor->GetInstanceComponents().Num() - 1; Index >= Change.PreviousComponents; --Index)
                     Change.Actor->GetInstanceComponents()[Index]->DestroyComponent();
+            Profile.Finish(ViewMode, false, 1);
             Notify(FString::Printf(TEXT("Could not display plans in %s view."), ModeNames[NextIndex]));
             return;
         }
     }
 
     // Keep the previous components until every plan can use the new mode.
+    Profile.Sample(TEXT("coexist"));
     for (const FViewChange& Change : Changes)
         for (int32 Index = Change.PreviousComponents - 1; Index >= 0; --Index)
             Change.Actor->GetInstanceComponents()[Index]->DestroyComponent();
     ViewMode = NextMode;
+    Profile.Finish(ViewMode, true, 0);
     Notify(FString::Printf(TEXT("Plan view: %s."), ModeNames[NextIndex]));
 }
 
@@ -314,11 +321,18 @@ void AShadowPlanSubsystem::ClearViews()
 
 void AShadowPlanSubsystem::Restore()
 {
+    FShadowProjectionProfile Profile(TEXT("restore"), ViewMode, ViewMode, Plans.Num(), Views);
     ClearViews();
+    Profile.Sample(TEXT("cleared"));
+    int32 FailedPlans = 0;
     for (const FShadowPlacement& Plan : Plans)
-        if (!ShowPlan(Plan))
+        if (!ShowPlan(Plan, Profile.Enabled()))
+        {
+            ++FailedPlans;
             UE_LOG(LogShadowArchitect, Warning, TEXT("Could not display plan %s (schema %d)"),
                 *Plan.Id.ToString(), Plan.SchemaVersion);
+        }
+    Profile.Finish(ViewMode, FailedPlans == 0, FailedPlans);
 }
 
 void AShadowPlanSubsystem::PostLoadGame_Implementation(int32 SaveVersion, int32 GameVersion)

@@ -1,10 +1,12 @@
 #include "ShadowPlan.h"
+#include "ShadowProjectionProfile.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "HAL/PlatformTime.h"
 #include "Materials/Material.h"
 
 namespace
@@ -89,8 +91,10 @@ void AShadowProjection::Tick(float DeltaSeconds)
     SelectionMarker->SetWorldScale3D(FVector(FMath::Clamp(ToCamera.Size() / 1200.0, 0.45, 12.0)));
 }
 
-void AShadowProjection::AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative)
+void AShadowProjection::AddMesh(UStaticMesh& Asset, UMaterialInterface& Material, const FTransform& Relative,
+    FShadowProjectionProfile* Profile)
 {
+    const uint64 Start = Profile ? FPlatformTime::Cycles64() : 0;
     UStaticMeshComponent* Mesh = NewObject<UStaticMeshComponent>(this, NAME_None, RF_Transient);
     Mesh->SetupAttachment(GetRootComponent());
     Mesh->SetMobility(EComponentMobility::Movable);
@@ -105,10 +109,18 @@ void AShadowProjection::AddMesh(UStaticMesh& Asset, UMaterialInterface& Material
     for (int32 Slot = 0; Slot < FMath::Max(1, Mesh->GetNumMaterials()); ++Slot)
         Mesh->SetMaterial(Slot, &Material);
     AddInstanceComponent(Mesh);
+    const uint64 RegisterStart = Profile ? FPlatformTime::Cycles64() : 0;
     Mesh->RegisterComponent();
+    if (Profile)
+    {
+        const uint64 End = FPlatformTime::Cycles64();
+        Profile->ComponentCycles += End - Start;
+        Profile->RegisterCycles += End - RegisterStart;
+    }
 }
 
-bool AShadowProjection::BuildFootprint(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material)
+bool AShadowProjection::BuildFootprint(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material,
+    FShadowProjectionProfile* Profile)
 {
     check(IsInGameThread());
     if (Plan.SchemaVersion != 1 || !Plan.Transform.IsValid()) return false;
@@ -123,28 +135,31 @@ bool AShadowProjection::BuildFootprint(const FShadowPlacement& Plan, UStaticMesh
     const FTransform Relative(FQuat::Identity, Offset, Scale);
     if (!Relative.IsValid()) return false;
 
-    AddMesh(Cube, Material, Relative);
+    AddMesh(Cube, Material, Relative, Profile);
     LocalPlanBounds = Footprint;
     return true;
 }
 
-bool AShadowProjection::Build(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material)
+bool AShadowProjection::Build(const FShadowPlacement& Plan, UStaticMesh& Cube, UMaterialInterface& Material,
+    FShadowProjectionProfile* Profile)
 {
-    return BuildParts(Plan, Cube, Material, Material);
+    return BuildParts(Plan, Cube, Material, Material, Profile);
 }
 
-bool AShadowProjection::BuildWireframe(const FShadowPlacement& Plan, UStaticMesh& Cube)
+bool AShadowProjection::BuildWireframe(const FShadowPlacement& Plan, UStaticMesh& Cube, FShadowProjectionProfile* Profile)
 {
     check(IsInGameThread());
+    const uint64 Start = Profile ? FPlatformTime::Cycles64() : 0;
     auto* Wireframe = LoadObject<UMaterialInterface>(nullptr,
         TEXT("/ShadowArchitect/Materials/M_ShadowWireframe.M_ShadowWireframe"));
     auto* BoxEdges = LoadObject<UMaterialInterface>(nullptr,
         TEXT("/ShadowArchitect/Materials/M_ShadowBoxEdges.M_ShadowBoxEdges"));
-    return Wireframe && BoxEdges && BuildParts(Plan, Cube, *Wireframe, *BoxEdges);
+    if (Profile) Profile->MaterialCycles += FPlatformTime::Cycles64() - Start;
+    return Wireframe && BoxEdges && BuildParts(Plan, Cube, *Wireframe, *BoxEdges, Profile);
 }
 
 bool AShadowProjection::BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cube,
-    UMaterialInterface& MeshMaterial, UMaterialInterface& ProxyMaterial)
+    UMaterialInterface& MeshMaterial, UMaterialInterface& ProxyMaterial, FShadowProjectionProfile* Profile)
 {
     check(IsInGameThread());
     const FBox Footprint = CalculateFootprint(Plan.Parts);
@@ -156,7 +171,7 @@ bool AShadowProjection::BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cu
         TArray<UStaticMesh*> Assets;
         for (const FShadowMesh& Mesh : Part.Meshes)
         {
-            UStaticMesh* Asset = Mesh.Asset.LoadSynchronous();
+            UStaticMesh* Asset = Profile ? Profile->ResolveMesh(Mesh.Asset) : Mesh.Asset.LoadSynchronous();
             if (!IsValid(Asset) || !Mesh.InPart.IsValid()) break;
             Assets.Add(Asset);
         }
@@ -167,12 +182,13 @@ bool AShadowProjection::BuildParts(const FShadowPlacement& Plan, UStaticMesh& Cu
             if (CubeSize.GetMin() <= 0) return false;
             const FVector Scale = Part.BoundsSize / CubeSize;
             const FTransform Box(FQuat::Identity, Part.BoundsCenter - CubeBounds.GetCenter() * Scale, Scale);
-            AddMesh(Cube, ProxyMaterial, Box * Part.InPlan);
+            if (Profile) ++Profile->ProxyParts;
+            AddMesh(Cube, ProxyMaterial, Box * Part.InPlan, Profile);
         }
         else
         {
             for (int32 Index = 0; Index < Assets.Num(); ++Index)
-                AddMesh(*Assets[Index], MeshMaterial, Part.Meshes[Index].InPart * Part.InPlan);
+                AddMesh(*Assets[Index], MeshMaterial, Part.Meshes[Index].InPart * Part.InPlan, Profile);
         }
     }
     LocalPlanBounds = Footprint;
