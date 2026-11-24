@@ -60,4 +60,4 @@ python -B scripts/projection_memory_trace_report.py Saved/F11-memory --check shi
 
 Закладки используют тот же QPC, что и журнал SaveCheck. Для `Growth Vs Decline` возьмите `window_begin empty_before` и `window_begin empty_after`. Для выделений, переживших выгрузку сетки, в запросе `Memory Leaks` задайте A=`travel grid`, B=`window_end grid` последнего Ghost и C=`window_begin empty_after`. Группируйте результаты по стеку выделения и тегу. Сначала подтвердите события alloc/free и разрешение имён функций на коротком Development-пилоте. [Запись и запросы Memory Insights](https://dev.epicgames.com/documentation/unreal-engine/memory-insights-in-unreal-engine)
 
-F11 остаётся открытой. Четыре Development-прогона, экспорты запросов и атрибуция остатка зависят от наличия совместимого игрового клиента.
+F11 отложена. Идея наблюдения в обычной игровой сессии записана в [карточке Shipping](11-check-memory-reuse-in-shipping.md). Для исходного протокола Memory Insights по-прежнему нужен совместимый Development-клиент.
